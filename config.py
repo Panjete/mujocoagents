@@ -50,7 +50,7 @@ configs = {
               "hyperparameters": {
                 
             },
-            "num_iteration": 100,
+            "num_iteration": 10,
 
         },
 

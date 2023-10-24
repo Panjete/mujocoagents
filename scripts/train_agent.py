@@ -134,6 +134,8 @@ def main():
     model_save_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../models")
     if not (os.path.exists(data_path)):
         os.makedirs(data_path)
+    if not (os.path.exists(model_save_path)):
+        os.makedirs(model_save_path)
 
     logdir = (
         args.exp_name

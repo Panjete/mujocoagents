@@ -49,7 +49,8 @@ class ImitationAgent(BaseAgent):
         #*********YOUR CODE HERE******************
         print("required shape = ", self.action_dim)
         print("actual shape = ", self.replay_buffer[0].shape)
-        action = torch.from_numpy(self.replay_buffer.acs[0]) #change this to your action
+        #action = torch.from_numpy(self.replay_buffer.acs[0]) #change this to your action
+        action = torch.from_numpy(self.expert_policy.get_action(observation))
         return action
 
 
@@ -57,7 +58,8 @@ class ImitationAgent(BaseAgent):
     def get_action(self, observation: torch.FloatTensor):
         #*********YOUR CODE HERE******************
         
-        action = torch.from_numpy(self.replay_buffer.acs[0]) #change this to your action
+        #action = torch.from_numpy(self.replay_buffer.acs[0]) #change this to your action
+        action = torch.from_numpy(self.expert_policy.get_action(observation))
         return action 
 
     
