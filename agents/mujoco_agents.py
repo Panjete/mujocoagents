@@ -41,33 +41,64 @@ class ImitationAgent(BaseAgent):
         
 
         #initialize your model and optimizer and other variables you may need
-        self.optimizer = None 
-
         
+
+        self.model = nn.Sequential(
+                nn.Conv1d(1, 12, 3),
+                nn.Conv1d(12, 1, observation_dim-action_dim-1)
+            )
+        self.learning_rate = 1e-6
+        self.loss_fn = nn.MSELoss(reduction='sum')
+        self.conv1 = nn.Conv1d(1, 12, 3)
+        self.conv2 = nn.Conv1d(12, 1, observation_dim-action_dim-1)
+        self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.learning_rate)
+
+
 
     def forward(self, observation: torch.FloatTensor):
         #*********YOUR CODE HERE******************
-        print("required shape = ", self.action_dim)
-        print("actual shape = ", self.replay_buffer[0].shape)
+        #print("required shape = ", self.action_dim)
+        #print("actual shape = ", self.replay_buffer[0].shape)
         #action = torch.from_numpy(self.replay_buffer.acs[0]) #change this to your action
-        action = torch.from_numpy(self.expert_policy.get_action(observation))
-        return action
 
+        # x = nn.functional.relu(self.conv1(observation))
+        # x = nn.functional.relu(self.conv2(x))
+        # #print("Forwading action shape =", x.shape)
+        # return x
+    
+        # action = torch.from_numpy(self.expert_policy.get_action(observation))
+        # return action
+        return self.model(observation)
 
     @torch.no_grad()
     def get_action(self, observation: torch.FloatTensor):
         #*********YOUR CODE HERE******************
         
         #action = torch.from_numpy(self.replay_buffer.acs[0]) #change this to your action
-        action = torch.from_numpy(self.expert_policy.get_action(observation))
-        return action 
-
+        # x = nn.functional.relu(self.conv1(observation))
+        # #print("Forwading action shape1 =", x.shape)
+        # x = nn.functional.relu(self.conv2(x))
+        # #print("Forwading action shape2 =", x.shape)
+        # return x
+    
+        # action = torch.from_numpy(self.expert_policy.get_action(observation))
+        # return action 
+        return self.model(observation)
     
     
     def update(self, observations, actions):
         #*********YOUR CODE HERE******************
-        # do nothing for now
-        pass
+        avg_loss = 0.0
+        for i in range(len(observations)):
+            obsvn = torch.from_numpy(observations[i])
+            ac = torch.from_numpy(actions[i])
+            y_pred = self.model(obsvn)
+            loss = self.loss_fn(y_pred, ac)
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+            avg_loss += loss.item()
+        return avg_loss/len(observations)
     
 
 
@@ -76,11 +107,18 @@ class ImitationAgent(BaseAgent):
             self.expert_policy, initial_expert_data = load_expert_policy(env, self.args.env_name)
             self.replay_buffer.add_rollouts(initial_expert_data)
         
-        print("required shape = ", self.action_dim)
-        print("actual shape = ", torch.from_numpy(self.replay_buffer.acs[0]).shape)
-        #*********YOUR CODE HERE******************
+        #print("buffer number of paths = ", len(self.replay_buffer.paths))
+        #print("buffer first traj obs, reward, next_obs, action, terminal= ", len(self.replay_buffer.paths[0]["observation"]), len(self.replay_buffer.paths[0]["reward"]), len(self.replay_buffer.paths[0]["next_observation"]), len(self.replay_buffer.paths[0]["action"]), len(self.replay_buffer.paths[0]["terminal"]))
+        #print("buffer first obs, ac shape= ", self.replay_buffer.obs[0].shape, self.replay_buffer.acs[0].shape)
+        #print("buffer first obs, ac = ", self.replay_buffer.obs[0], self.replay_buffer.acs[0])
         
-        return {'episode_loss': 0.01, 'trajectories': self.replay_buffer.paths, 'current_train_envsteps': envsteps_so_far} #you can return more metadata if you want to
+        #print("actual shape = ", torch.from_numpy(self.replay_buffer.acs[0]).shape)
+        #*********YOUR CODE HERE******************
+        #for i in range(len(envsteps_so_far, min(envsteps_so_far+10, len(self.replay_buffer.obs)))):
+        obsvns = self.replay_buffer.obs[envsteps_so_far : min(envsteps_so_far+10, len(self.replay_buffer.obs))]
+        acns = self.replay_buffer.acs[envsteps_so_far : min(envsteps_so_far+10, len(self.replay_buffer.obs))]
+        upd = self.update(obsvns, acns)
+        return {'episode_loss': upd, 'trajectories': self.replay_buffer.paths, 'current_train_envsteps': envsteps_so_far+10} #you can return more metadata if you want to
 
 
 
