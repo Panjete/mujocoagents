@@ -132,7 +132,9 @@ class ImitationAgent(BaseAgent):
         #for i in range(len(envsteps_so_far, min(envsteps_so_far+10, len(self.replay_buffer.obs)))):
         #print("env slice = ",envsteps_so_far ,  min(envsteps_so_far+10, len(self.replay_buffer.obs)) )
 
-        
+        max_lengths = list(map(len, self.replay_buffer.obs))
+        # Find the maximum length
+        print("min, avg max of traj lengths orig", max(max_lengths), np.average(max_lengths), max(max_lengths))
         trajs = utils.sample_n_trajectories(env, self, self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], False) #
         #print("N = ", len(trajs), " number of trajectories sampled")
         #print("These trajs are ", trajs[0])
@@ -146,7 +148,7 @@ class ImitationAgent(BaseAgent):
         #obsvns1 = np.concatenate(self.replay_buffer.obs, trajs['observations']) #[envsteps_so_far : min(envsteps_so_far+10, len(self.replay_buffer.obs))]
         #acns1 = self.replay_buffer.acs#[envsteps_so_far : min(envsteps_so_far+10, len(self.replay_buffer.obs))]
         #upd = self.update(obsvns, acns)
-        self.beta = 1 / (1 + np.sqrt(envsteps_so_far/1000))
+        self.beta = 1 / (1 + envsteps_so_far/1000)
         upd = self.update(trajs)
         return {'episode_loss': upd, 'trajectories': trajs, 'current_train_envsteps': 50} #you can return more metadata if you want to
 

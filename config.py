@@ -49,9 +49,9 @@ configs = {
             #You can add or change the keys here
               "hyperparameters": {
                 "ntraj" : 50,
-                "maxtraj" : 100
+                "maxtraj" : 400
             },
-            "num_iteration": 50,
+            "num_iteration": 75,
 
         },
 
