@@ -38,7 +38,7 @@ class ImitationAgent(BaseAgent):
         self.is_action_discrete = discrete
         self.args = args
         self.replay_buffer = ReplayBuffer(5000) #you can set the max size of replay buffer if you want
-        
+        self.beta = 0.5
 
         #initialize your model and optimizer and other variables you may need
         
@@ -47,9 +47,11 @@ class ImitationAgent(BaseAgent):
                 #nn.Conv1d(1, 12, 3),
                 #nn.Conv1d(12, 1, observation_dim-action_dim-1)
                 nn.Linear(self.observation_dim, 20),
-                nn.Linear(20, self.action_dim)
+                nn.LeakyReLU(),
+                nn.Linear(20, self.action_dim),
+                nn.LeakyReLU()
             )
-        self.learning_rate = 1e-6
+        self.learning_rate = 1e-3
         self.loss_fn = nn.MSELoss(reduction='sum')
         #self.conv1 = nn.Conv1d(1, 12, 3)
         #self.conv2 = nn.Conv1d(12, 1, observation_dim-action_dim-1)
@@ -88,22 +90,30 @@ class ImitationAgent(BaseAgent):
         return self.model(observation)
     
     
-    def update(self, observations, actions):
+    def update(self, trajs):
         #*********YOUR CODE HERE******************
         avg_loss = 0.0
-        print("optimising for ", len(observations))
-        for i in range(len(observations)):
-            obsvn = torch.from_numpy(observations[i])
-            ac = torch.from_numpy(actions[i])
-            y_pred = self.model(obsvn)
-            loss = self.loss_fn(y_pred, ac)
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
-            avg_loss += loss.item()
-        if len(observations) ==0:
-            return 0.0
-        return avg_loss/len(observations)
+        j = 0
+        for traj in trajs:
+            if len(traj["action"])==len(traj["observation"]):
+                for i in range(len(traj["action"])):
+                    obsvn = torch.from_numpy(traj["observation"][i])
+                    if random.random() < self.beta:
+                        ac = torch.from_numpy(self.expert_policy.get_action(torch.from_numpy(traj["observation"][i])))
+                    else:
+                        ac = torch.from_numpy(traj["action"][i])
+                    y_pred = self.model(obsvn)
+                    loss = self.loss_fn(y_pred, ac)
+                    self.optimizer.zero_grad()
+                    loss.backward()
+                    self.optimizer.step()
+                    avg_loss += loss.item()
+                    j += 1
+            else:
+                print("oops?")
+        
+        self.replay_buffer.add_rollouts(trajs)
+        return avg_loss/j
     
 
 
@@ -121,10 +131,24 @@ class ImitationAgent(BaseAgent):
         #*********YOUR CODE HERE******************
         #for i in range(len(envsteps_so_far, min(envsteps_so_far+10, len(self.replay_buffer.obs)))):
         #print("env slice = ",envsteps_so_far ,  min(envsteps_so_far+10, len(self.replay_buffer.obs)) )
-        obsvns = self.replay_buffer.obs#[envsteps_so_far : min(envsteps_so_far+10, len(self.replay_buffer.obs))]
-        acns = self.replay_buffer.acs#[envsteps_so_far : min(envsteps_so_far+10, len(self.replay_buffer.obs))]
-        upd = self.update(obsvns, acns)
-        return {'episode_loss': upd, 'trajectories': self.replay_buffer.paths, 'current_train_envsteps': envsteps_so_far+10} #you can return more metadata if you want to
+
+        
+        trajs = utils.sample_n_trajectories(env, self, self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], False) #
+        #print("N = ", len(trajs), " number of trajectories sampled")
+        #print("These trajs are ", trajs[0])
+        # obsvns = []
+        # acns = []
+        # for traj in trajs:
+        #     obsvns.append(traj["observation"])
+        #     acns.append(traj["action"])
+
+
+        #obsvns1 = np.concatenate(self.replay_buffer.obs, trajs['observations']) #[envsteps_so_far : min(envsteps_so_far+10, len(self.replay_buffer.obs))]
+        #acns1 = self.replay_buffer.acs#[envsteps_so_far : min(envsteps_so_far+10, len(self.replay_buffer.obs))]
+        #upd = self.update(obsvns, acns)
+        self.beta = 1 / (1 + np.sqrt(envsteps_so_far/1000))
+        upd = self.update(trajs)
+        return {'episode_loss': upd, 'trajectories': trajs, 'current_train_envsteps': 50} #you can return more metadata if you want to
 
 
 

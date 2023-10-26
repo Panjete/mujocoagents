@@ -48,9 +48,10 @@ configs = {
         "imitation":{
             #You can add or change the keys here
               "hyperparameters": {
-                
+                "ntraj" : 50,
+                "maxtraj" : 100
             },
-            "num_iteration": 20,
+            "num_iteration": 50,
 
         },
 
