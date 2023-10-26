@@ -44,13 +44,15 @@ class ImitationAgent(BaseAgent):
         
 
         self.model = nn.Sequential(
-                nn.Conv1d(1, 12, 3),
-                nn.Conv1d(12, 1, observation_dim-action_dim-1)
+                #nn.Conv1d(1, 12, 3),
+                #nn.Conv1d(12, 1, observation_dim-action_dim-1)
+                nn.Linear(self.observation_dim, 20),
+                nn.Linear(20, self.action_dim)
             )
         self.learning_rate = 1e-6
         self.loss_fn = nn.MSELoss(reduction='sum')
-        self.conv1 = nn.Conv1d(1, 12, 3)
-        self.conv2 = nn.Conv1d(12, 1, observation_dim-action_dim-1)
+        #self.conv1 = nn.Conv1d(1, 12, 3)
+        #self.conv2 = nn.Conv1d(12, 1, observation_dim-action_dim-1)
         self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.learning_rate)
 
 
@@ -89,6 +91,7 @@ class ImitationAgent(BaseAgent):
     def update(self, observations, actions):
         #*********YOUR CODE HERE******************
         avg_loss = 0.0
+        print("optimising for ", len(observations))
         for i in range(len(observations)):
             obsvn = torch.from_numpy(observations[i])
             ac = torch.from_numpy(actions[i])
@@ -98,6 +101,8 @@ class ImitationAgent(BaseAgent):
             loss.backward()
             self.optimizer.step()
             avg_loss += loss.item()
+        if len(observations) ==0:
+            return 0.0
         return avg_loss/len(observations)
     
 
@@ -115,8 +120,9 @@ class ImitationAgent(BaseAgent):
         #print("actual shape = ", torch.from_numpy(self.replay_buffer.acs[0]).shape)
         #*********YOUR CODE HERE******************
         #for i in range(len(envsteps_so_far, min(envsteps_so_far+10, len(self.replay_buffer.obs)))):
-        obsvns = self.replay_buffer.obs[envsteps_so_far : min(envsteps_so_far+10, len(self.replay_buffer.obs))]
-        acns = self.replay_buffer.acs[envsteps_so_far : min(envsteps_so_far+10, len(self.replay_buffer.obs))]
+        #print("env slice = ",envsteps_so_far ,  min(envsteps_so_far+10, len(self.replay_buffer.obs)) )
+        obsvns = self.replay_buffer.obs#[envsteps_so_far : min(envsteps_so_far+10, len(self.replay_buffer.obs))]
+        acns = self.replay_buffer.acs#[envsteps_so_far : min(envsteps_so_far+10, len(self.replay_buffer.obs))]
         upd = self.update(obsvns, acns)
         return {'episode_loss': upd, 'trajectories': self.replay_buffer.paths, 'current_train_envsteps': envsteps_so_far+10} #you can return more metadata if you want to
 
