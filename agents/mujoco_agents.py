@@ -177,34 +177,72 @@ class RLAgent(BaseAgent):
         self.is_action_discrete = discrete
         self.args = args
         #initialize your model and optimizer and other variables you may need
+        self.model = nn.Sequential(
+                nn.Linear(self.observation_dim, 64),
+                nn.LeakyReLU(),
+                nn.Linear(64, self.action_dim),
+            )
+        self.action_mean = nn.Sequential(
+                nn.Identity(),
+                nn.tanh(),
+            )
+        self.action_var = nn.Sequential(
+                nn.Identity(),
+                nn.Linear(self.action_dim, self.action_dim),
+            )
         
+        self.loss_fn = nn.GaussianNLLLoss()
+        self.optimizer = torch.optim.Adam(self.model.parameters())
 
     
     def forward(self, observation: torch.FloatTensor):
         #*********YOUR CODE HERE******************
-        pass
+        x = self.model(observation)
+        action_mean = self.action_mean(x)
+        action_var = self.action_var(x)
+        predicted_action = torch.normal(action_mean, action_var)
+        # return predicted_action
+        action = torch.from_numpy(self.expert_policy.get_action(observation)) ## For now, modify later
+        return action
 
 
     @torch.no_grad()
     def get_action(self, observation: torch.FloatTensor):
         #*********YOUR CODE HERE******************
-        pass
+        x = self.model(observation)
+        action_mean = self.action_mean(x)
+        action_var = self.action_var(x)
+        predicted_action = torch.normal(action_mean, action_var)
+        action = torch.from_numpy(self.expert_policy.get_action(observation)) ## For now, modify later
+        return action
 
     
-    def update(self, observations, actions, advantage, q_values = None):
+    '''def update(self, observations, actions, advantage, q_values = None):
         #*********YOUR CODE HERE******************
         loss = self.policy_update(observations, actions, advantage)
         if self.hyperparameters['critic']:
                 critic_loss = self.critic_update(observations, q_values)
                 loss += critic_loss
         return loss
+
+        return'''
+    
+    def update(self, trajs):
+        n = len(trajs)
+
+        for traj in trajs:
+            sum_of_rewards = np.sum(traj["rewards"])
+            
+        return
     
 
     def train_iteration(self, env, envsteps_so_far, render=False, itr_num=None, **kwargs):
         #*********YOUR CODE HERE******************
         self.train()
-        
-        return {'episode_loss': None, 'trajectories': None, 'current_train_envsteps': None} #you can return more metadata if you want to
+        trajs = utils.sample_n_trajectories(env, self, self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], False)
+        upd = self.update(trajs)
+
+        return {'episode_loss': upd, 'trajectories': trajs, 'current_train_envsteps': self.hyperparameters["ntraj"]} #you can return more metadata if you want to
 
 
 
