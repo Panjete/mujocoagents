@@ -17,3 +17,11 @@ Ant : input 27, out 8
 
 * ntrajs : 50, maxlentrajs: 100 , iters : 75, lossfunction:MSE , NN: linear, beta: 1/(1+ timesteps/1000) reward : 2200ish
 *  ntrajs : 50, maxlentrajs: 400 , iters : 75, lossfunction:MSE , NN: linear, beta: 1/(1+ timesteps/1000) reward : 2400ish - more stable near 75
+
+### Half cheetah v4
+
+*  ntrajs : 50, maxlentrajs: 400 , iters : 75, lossfunction:MSE , NN: linear, beta: 1/(1+ timesteps/1000) reward : 2400ish - had achieved this fairly early though?
+
+*  ntrajs : 50, maxlentrajs: 400 , iters : 75, lossfunction:MSE , NN: linear, beta: 1/(1+ timesteps/1000), optimiser : ADAM reward : 2400ish - had achieved this fairly early though?
+
+

@@ -55,8 +55,8 @@ class ImitationAgent(BaseAgent):
         self.loss_fn = nn.MSELoss(reduction='sum')
         #self.conv1 = nn.Conv1d(1, 12, 3)
         #self.conv2 = nn.Conv1d(12, 1, observation_dim-action_dim-1)
-        self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.learning_rate)
-
+        #self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.learning_rate)
+        self.optimizer = torch.optim.Adam(self.model.parameters())
 
 
     def forward(self, observation: torch.FloatTensor):
@@ -132,7 +132,7 @@ class ImitationAgent(BaseAgent):
         #for i in range(len(envsteps_so_far, min(envsteps_so_far+10, len(self.replay_buffer.obs)))):
         #print("env slice = ",envsteps_so_far ,  min(envsteps_so_far+10, len(self.replay_buffer.obs)) )
 
-        max_lengths = list(map(len, self.replay_buffer.obs))
+        max_lengths = list(map(len, self.replay_buffer.paths))
         # Find the maximum length
         print("min, avg max of traj lengths orig", max(max_lengths), np.average(max_lengths), max(max_lengths))
         trajs = utils.sample_n_trajectories(env, self, self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], False) #
