@@ -180,44 +180,45 @@ class RLAgent(BaseAgent):
         self.model = nn.Sequential(
                 nn.Linear(self.observation_dim, 64),
                 nn.LeakyReLU(),
-                nn.Linear(64, self.action_dim),
+                nn.Linear(64, 4*self.action_dim),
+                nn.LeakyReLU(),
+                nn.Linear(4*self.action_dim, 2*self.action_dim),
             )
-        self.action_mean = nn.Sequential(
-                nn.Linear(self.action_dim, self.action_dim),
-                nn.Tanh(),
-            )
-        self.action_var = nn.Sequential(
-                nn.Linear(self.action_dim, self.action_dim) 
-            )
-        parameters = list(self.model.parameters()) + list(self.action_mean.parameters()) + list(self.action_var.parameters())
+       
         self.loss_fn = nn.GaussianNLLLoss()
         #self.loss_fn = nn.MSELoss(reduction = 'sum')
-        self.optimizer = torch.optim.Adam(parameters)
+        self.optimizer = torch.optim.Adam(self.model.parameters())
 
     
     def forward(self, observation: torch.FloatTensor):
         #*********YOUR CODE HERE******************
         x = self.model(observation)
-        action_mean = self.action_mean(x)
-        action_var = torch.abs(self.action_var(x))
-        predicted_action = torch.normal(action_mean, action_var)
-        return predicted_action
+        a_m = x[:, :self.action_dim]
+        a_v = torch.abs(x[:, self.action_dim:])
+        ms = torch.distributions.Normal(a_m, a_v)
+        action = ms.sample()
+        return action
+    
     
     def distbn(self, observation: torch.FloatTensor):
         x = self.model(observation)
-        action_mean = self.action_mean(x)
-        action_var = torch.abs(self.action_var(x))
-        return action_mean, action_var
+        a_m = x[:self.action_dim]
+        a_v = torch.abs(x[self.action_dim:])
+        ms = torch.distributions.Normal(a_m, a_v)
+        action = ms.sample()
+        log_action = ms.log_prob(action)
+        return action, log_action, a_m, a_v
 
 
     @torch.no_grad()
     def get_action(self, observation: torch.FloatTensor):
         #*********YOUR CODE HERE******************
         x = self.model(observation)
-        action_mean = self.action_mean(x)
-        action_var = torch.abs(self.action_var(x))
-        predicted_action = torch.normal(action_mean, action_var)
-        return predicted_action
+        a_m = x[:,:self.action_dim]
+        a_v = torch.abs(x[:,self.action_dim:])
+        ms = torch.distributions.Normal(a_m, a_v)
+        action = ms.sample()
+        return action
 
     
     '''def update(self, observations, actions, advantage, q_values = None):
@@ -231,28 +232,47 @@ class RLAgent(BaseAgent):
         return'''
     
     def update(self, trajs):
+        avg_score = 0.0
         n = len(trajs)
-        avg_loss = 0.0
+        losses = []
         for traj in trajs:
-            sum_of_rewards = np.sum(traj["reward"])
-            iloss = 0.0
-            for i in range(len(traj["observation"])):
-                obsv_tensor = torch.from_numpy(traj["observation"][i])
-                a_tensor = torch.from_numpy(traj["action"][i])
+            # rewards = []
+            # log_actions = []
+            score = 0
+            li = []
+            for step in range(len(traj["observation"])):
+                #select action, clip action to be [-1, 1]
+                state = torch.from_numpy(traj["observation"][step])
+                action_suggested, la, a_m, a_v = self.distbn(state) #clip action? action = min(max(-1, action), 1)
+                actual_action = torch.from_numpy(traj["action"][step])
+                #l1 = torch.norm(la)
+                l1 = self.loss_fn(actual_action, a_m, a_v)
+                # log_probs = policy_network.log_prob(actions, means, log_stds)
+                # l1 = -torch.mean(log_probs * rewards)
+                
+                reward = traj['reward'][step]
+                score += reward #track episode score
+                li.append(l1)
+                #store reward and log probability
+                # rewards.append(reward)
+                # log_actions.append(la)
+                # print("log_action shape =", la.shape)
+            losses.append(score * sum(li))   
+            #Calculate Gt (cumulative discounted rewards)
+            #rewards = process_rewards(rewards)
+            #adjusting policy parameters with gradient ascent
+            # loss = []
+            # for r, la in zip(rewards, log_actions):
+                
+            #     loss.append(-r * la) # a negative sign since network will perform gradient descent and we are doing gradient ascent
+        loss = (1/n) * sum(losses)    
+        #Backpropagation
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        avg_score += score
 
-                a_m, a_v = self.distbn(obsv_tensor)
-                loss2 = (sum_of_rewards/n) * self.loss_fn(a_m, a_tensor, a_v)
-                iloss += loss2.item()
-                loss2.backward()
-
-                # f_nn_s = self.forward(obsv_tensor)
-                # loss1 = (sum_of_rewards/n) * self.loss_fn(f_nn_s, a_tensor)
-                # avg_loss += loss1.item()
-                # loss1.backward()
-            if len(traj["observation"]) > 0:
-                avg_loss += iloss / len(traj["observation"])
-            self.optimizer.step()
-        return avg_loss/n
+        return avg_score/n
     
 
     def train_iteration(self, env, envsteps_so_far, render=False, itr_num=None, **kwargs):
