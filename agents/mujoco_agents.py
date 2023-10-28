@@ -183,27 +183,31 @@ class RLAgent(BaseAgent):
                 nn.Linear(64, self.action_dim),
             )
         self.action_mean = nn.Sequential(
-                nn.Identity(),
-                nn.tanh(),
+                nn.Linear(self.action_dim, self.action_dim),
+                nn.Tanh(),
             )
         self.action_var = nn.Sequential(
-                nn.Identity(),
-                nn.Linear(self.action_dim, self.action_dim),
+                nn.Linear(self.action_dim, self.action_dim) 
             )
-        
+        parameters = list(self.model.parameters()) + list(self.action_mean.parameters()) + list(self.action_var.parameters())
         self.loss_fn = nn.GaussianNLLLoss()
-        self.optimizer = torch.optim.Adam(self.model.parameters())
+        #self.loss_fn = nn.MSELoss(reduction = 'sum')
+        self.optimizer = torch.optim.Adam(parameters)
 
     
     def forward(self, observation: torch.FloatTensor):
         #*********YOUR CODE HERE******************
         x = self.model(observation)
         action_mean = self.action_mean(x)
-        action_var = self.action_var(x)
+        action_var = torch.abs(self.action_var(x))
         predicted_action = torch.normal(action_mean, action_var)
-        # return predicted_action
-        action = torch.from_numpy(self.expert_policy.get_action(observation)) ## For now, modify later
-        return action
+        return predicted_action
+    
+    def distbn(self, observation: torch.FloatTensor):
+        x = self.model(observation)
+        action_mean = self.action_mean(x)
+        action_var = torch.abs(self.action_var(x))
+        return action_mean, action_var
 
 
     @torch.no_grad()
@@ -211,10 +215,9 @@ class RLAgent(BaseAgent):
         #*********YOUR CODE HERE******************
         x = self.model(observation)
         action_mean = self.action_mean(x)
-        action_var = self.action_var(x)
+        action_var = torch.abs(self.action_var(x))
         predicted_action = torch.normal(action_mean, action_var)
-        action = torch.from_numpy(self.expert_policy.get_action(observation)) ## For now, modify later
-        return action
+        return predicted_action
 
     
     '''def update(self, observations, actions, advantage, q_values = None):
@@ -229,11 +232,27 @@ class RLAgent(BaseAgent):
     
     def update(self, trajs):
         n = len(trajs)
-
+        avg_loss = 0.0
         for traj in trajs:
-            sum_of_rewards = np.sum(traj["rewards"])
-            
-        return
+            sum_of_rewards = np.sum(traj["reward"])
+            iloss = 0.0
+            for i in range(len(traj["observation"])):
+                obsv_tensor = torch.from_numpy(traj["observation"][i])
+                a_tensor = torch.from_numpy(traj["action"][i])
+
+                a_m, a_v = self.distbn(obsv_tensor)
+                loss2 = (sum_of_rewards/n) * self.loss_fn(a_m, a_tensor, a_v)
+                iloss += loss2.item()
+                loss2.backward()
+
+                # f_nn_s = self.forward(obsv_tensor)
+                # loss1 = (sum_of_rewards/n) * self.loss_fn(f_nn_s, a_tensor)
+                # avg_loss += loss1.item()
+                # loss1.backward()
+            if len(traj["observation"]) > 0:
+                avg_loss += iloss / len(traj["observation"])
+            self.optimizer.step()
+        return avg_loss/n
     
 
     def train_iteration(self, env, envsteps_so_far, render=False, itr_num=None, **kwargs):
