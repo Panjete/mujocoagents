@@ -184,10 +184,20 @@ class RLAgent(BaseAgent):
                 nn.LeakyReLU(),
                 nn.Linear(4*self.action_dim, 2*self.action_dim),
             )
+        
+        self.critic = nn.Sequential(
+            nn.LayerNorm(self.observation_dim),
+            nn.Linear(self.observation_dim, 4*self.action_dim),
+            nn.LeakyReLU(),
+            nn.Linear(4*self.action_dim, 2*self.action_dim),
+            nn.LeakyReLU(),
+            nn.Linear(2*self.action_dim, 1),
+        )
        
         self.loss_fn = nn.GaussianNLLLoss()
-        #self.loss_fn = nn.MSELoss(reduction = 'sum')
+        self.loss_critic = nn.MSELoss(reduction = 'sum')
         self.optimizer = torch.optim.Adam(self.model.parameters())
+        self.optimizer_critic = torch.optim.Adam(self.critic.parameters())
 
     
     def forward(self, observation: torch.FloatTensor):
@@ -236,10 +246,11 @@ class RLAgent(BaseAgent):
         n = len(trajs)
         losses = []
         for traj in trajs:
+            ## Step 1: getting trajectories
             # rewards = []
             # log_actions = []
             score = 0
-            li = []
+            li = [] ## Houses log(pi_theta(a_it|s_it)) for all t in this traj i
             rewards = []
             for step in range(len(traj["observation"])):
                 #select action, clip action to be [-1, 1]
@@ -248,14 +259,12 @@ class RLAgent(BaseAgent):
                 actual_action = torch.from_numpy(traj["action"][step])
                 #l1 = torch.norm(la)
                 l1 = self.loss_fn(actual_action, a_m, a_v)
-                # log_probs = policy_network.log_prob(actions, means, log_stds)
-                # l1 = -torch.mean(log_probs * rewards)
-                
                 reward = traj['reward'][step]
                 score += reward * (self.hyperparameters["gamma"]**step) #track episode score
                 li.append(l1)
                 rewards.append(reward)
 
+            ## This loop does gives the "rewards to go" from every (s, a) in this trajectory
             acc_rewards = []
             pr = 0.0
             for r in rewards[::-1]:
@@ -263,10 +272,32 @@ class RLAgent(BaseAgent):
                 acc_rewards.append(next_r)
                 pr = next_r
             acc_rewards.reverse()
-            #print("rewards len = ", len(rewards), " and acc rewards len = ", len(acc_rewards))
-            #print("acc rews =", acc_rewards[0], acc_rewards[1], acc_rewards[2])
+            
+                
+            for step in range(len(acc_rewards)):
+                ## Step 2. Fit V_phi_pi to sampled new rewards
+                trj_reward_discounted = torch.tensor(acc_rewards[step]).to(torch.float64)
+                state = torch.from_numpy(traj["observation"][step])
+                estimated_reward = self.critic(state).to(torch.float64)
+                critic_loss = self.loss_critic(trj_reward_discounted, estimated_reward).to(torch.float64)
+                #print("Dtypes trj_reward, estimated_rward and loss", trj_reward_discounted.dtype, estimated_reward.dtype, critic_loss.dtype)
+                self.optimizer_critic.zero_grad()
+                critic_loss.backward()
+                self.optimizer_critic.step()
+
+            #print("Next Obsv Size vs Obs size",len(traj["next_observation"]), len(traj["observation"]) )
             for step in range(len(li)):
-                li[step] = acc_rewards[step] * li[step]
+                ## Step 3 : evaluating A_pi
+                s_prime = torch.from_numpy(traj["next_observation"][step])
+                V_s_prime = self.critic(s_prime).item()
+                state = torch.from_numpy(traj["observation"][step])
+                V_state = self.critic(state).item()
+                reward_this_time = traj["reward"][step]
+                A_pi_s_i = reward_this_time + (self.hyperparameters["gamma"]*V_s_prime) - V_state
+                ## Step 4 : log(pi(a_it, s_it)) * A_pi_s_i
+                li[step] = li[step] * A_pi_s_i
+                #li[step] = acc_rewards[step] * li[step] ## Without baseline, log(pi(a_it, s_it)) * sum(r(s_t', a_t')) for t' = t to T
+    
 
             losses.append(sum(li))   
             #Calculate Gt (cumulative discounted rewards)
@@ -277,7 +308,7 @@ class RLAgent(BaseAgent):
                 
             #     loss.append(-r * la) # a negative sign since network will perform gradient descent and we are doing gradient ascent
         loss = (1/n) * sum(losses)    
-        #Backpropagation
+        #Step 5 : Backpropagation on theta
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
