@@ -60,9 +60,11 @@ configs = {
             #You can add or change the keys here
                "hyperparameters": {
                 "ntraj" : 50,
-                "maxtraj" : 400
+                "maxtraj" : 400,
+                "std_min": 0.001,
+                "gamma" : 0.95
             },
-            "num_iteration": 100,
+            "num_iteration": 1000,
 
         },
     },

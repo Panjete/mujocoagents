@@ -194,7 +194,7 @@ class RLAgent(BaseAgent):
         #*********YOUR CODE HERE******************
         x = self.model(observation)
         a_m = x[:, :self.action_dim]
-        a_v = torch.abs(x[:, self.action_dim:])
+        a_v = torch.clamp(torch.abs(x[:,self.action_dim:]), min = self.hyperparameters["std_min"])
         ms = torch.distributions.Normal(a_m, a_v)
         action = ms.sample()
         return action
@@ -203,7 +203,7 @@ class RLAgent(BaseAgent):
     def distbn(self, observation: torch.FloatTensor):
         x = self.model(observation)
         a_m = x[:self.action_dim]
-        a_v = torch.abs(x[self.action_dim:])
+        a_v = torch.clamp(torch.abs(x[self.action_dim:]), min = self.hyperparameters["std_min"])
         ms = torch.distributions.Normal(a_m, a_v)
         action = ms.sample()
         log_action = ms.log_prob(action)
@@ -215,7 +215,7 @@ class RLAgent(BaseAgent):
         #*********YOUR CODE HERE******************
         x = self.model(observation)
         a_m = x[:,:self.action_dim]
-        a_v = torch.abs(x[:,self.action_dim:])
+        a_v = torch.clamp(torch.abs(x[:,self.action_dim:]), min = self.hyperparameters["std_min"])
         ms = torch.distributions.Normal(a_m, a_v)
         action = ms.sample()
         return action
@@ -240,6 +240,7 @@ class RLAgent(BaseAgent):
             # log_actions = []
             score = 0
             li = []
+            rewards = []
             for step in range(len(traj["observation"])):
                 #select action, clip action to be [-1, 1]
                 state = torch.from_numpy(traj["observation"][step])
@@ -251,13 +252,23 @@ class RLAgent(BaseAgent):
                 # l1 = -torch.mean(log_probs * rewards)
                 
                 reward = traj['reward'][step]
-                score += reward #track episode score
+                score += reward * (self.hyperparameters["gamma"]**step) #track episode score
                 li.append(l1)
-                #store reward and log probability
-                # rewards.append(reward)
-                # log_actions.append(la)
-                # print("log_action shape =", la.shape)
-            losses.append(score * sum(li))   
+                rewards.append(reward)
+
+            acc_rewards = []
+            pr = 0.0
+            for r in rewards[::-1]:
+                next_r = r + self.hyperparameters["gamma"]*pr
+                acc_rewards.append(next_r)
+                pr = next_r
+            acc_rewards.reverse()
+            #print("rewards len = ", len(rewards), " and acc rewards len = ", len(acc_rewards))
+            #print("acc rews =", acc_rewards[0], acc_rewards[1], acc_rewards[2])
+            for step in range(len(li)):
+                li[step] = acc_rewards[step] * li[step]
+
+            losses.append(sum(li))   
             #Calculate Gt (cumulative discounted rewards)
             #rewards = process_rewards(rewards)
             #adjusting policy parameters with gradient ascent
