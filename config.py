@@ -12,9 +12,9 @@ configs = {
             #You can add or change the keys here
             "hyperparameters": {
                 "ntraj" : 50,
-                "maxtraj" : 400
+                "maxtraj" : 1000
             },
-            "num_iteration": 10,
+            "num_iteration": 100,
 
         },
 
@@ -58,12 +58,19 @@ configs = {
 
         "RL":{
             #You can add or change the keys here
+            # ntraj is the number of trajectories sampled for 1 iterative loop
+            # maxtraj is the maximum length of the trajectories that get sampled for training
+            # std_min is the min variance of the gaussian distributions estimated
+            # gamma is the discount factor of the trajectories
+            # alpha is the gradient addition parameter
+            # 1-prob_rand_sample_training is the probability of taking a random action when training
                "hyperparameters": {
                 "ntraj" : 50,
-                "maxtraj" : 400,
+                "maxtraj" : 1000,
                 "std_min": 0.001,
                 "gamma" : 0.95,
-                "alpha" : 1.0
+                "alpha" : 1.0,
+                "prob_rand_sample_training" : 0.99
             },
             "num_iteration": 1000,
 
@@ -77,7 +84,7 @@ configs = {
                 "ntraj" : 50,
                 "maxtraj" : 400
             },
-            "num_iteration": 20,
+            "num_iteration": 30,
         },
 
         "RL":{

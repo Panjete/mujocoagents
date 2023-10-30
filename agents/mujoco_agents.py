@@ -44,12 +44,13 @@ class ImitationAgent(BaseAgent):
         
 
         self.model = nn.Sequential(
-                #nn.Conv1d(1, 12, 3),
-                #nn.Conv1d(12, 1, observation_dim-action_dim-1)
-                nn.Linear(self.observation_dim, 20),
+                nn.LayerNorm(self.observation_dim),
+                nn.Linear(self.observation_dim, 4*self.observation_dim),
                 nn.LeakyReLU(),
-                nn.Linear(20, self.action_dim),
-                nn.LeakyReLU()
+                nn.Linear(4*self.observation_dim, 2*self.observation_dim),
+                nn.LayerNorm(2*self.observation_dim),
+                nn.Linear(2*self.observation_dim, self.action_dim),
+                nn.Tanh()
             )
         self.learning_rate = 1e-3
         self.loss_fn = nn.MSELoss(reduction='sum')
@@ -95,22 +96,20 @@ class ImitationAgent(BaseAgent):
         avg_loss = 0.0
         j = 0
         for traj in trajs:
-            if len(traj["action"])==len(traj["observation"]):
-                for i in range(len(traj["action"])):
-                    obsvn = torch.from_numpy(traj["observation"][i])
-                    if random.random() < self.beta:
-                        ac = torch.from_numpy(self.expert_policy.get_action(torch.from_numpy(traj["observation"][i])))
-                    else:
-                        ac = torch.from_numpy(traj["action"][i])
-                    y_pred = self.model(obsvn)
-                    loss = self.loss_fn(y_pred, ac)
-                    self.optimizer.zero_grad()
-                    loss.backward()
-                    self.optimizer.step()
-                    avg_loss += loss.item()
-                    j += 1
-            else:
-                print("oops?")
+            for i in range(len(traj["action"])):
+                obsvn = torch.from_numpy(traj["observation"][i])
+                if random.random() < self.beta:
+                    ac = torch.from_numpy(self.expert_policy.get_action(torch.from_numpy(traj["observation"][i])))
+                else:
+                    ac = torch.from_numpy(traj["action"][i])
+                y_pred = self.model(obsvn)
+                loss = self.loss_fn(y_pred, ac)
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()
+                avg_loss += loss.item()
+                j += 1
+           
         
         self.replay_buffer.add_rollouts(trajs)
         return avg_loss/j
@@ -132,22 +131,9 @@ class ImitationAgent(BaseAgent):
         #for i in range(len(envsteps_so_far, min(envsteps_so_far+10, len(self.replay_buffer.obs)))):
         #print("env slice = ",envsteps_so_far ,  min(envsteps_so_far+10, len(self.replay_buffer.obs)) )
 
-        max_lengths = list(map(len, self.replay_buffer.paths))
-        # Find the maximum length
+        max_lengths = [len(path) for path in self.replay_buffer.paths]
         print("min, avg max of traj lengths orig", max(max_lengths), np.average(max_lengths), max(max_lengths))
         trajs = utils.sample_n_trajectories(env, self, self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], False) #
-        #print("N = ", len(trajs), " number of trajectories sampled")
-        #print("These trajs are ", trajs[0])
-        # obsvns = []
-        # acns = []
-        # for traj in trajs:
-        #     obsvns.append(traj["observation"])
-        #     acns.append(traj["action"])
-
-
-        #obsvns1 = np.concatenate(self.replay_buffer.obs, trajs['observations']) #[envsteps_so_far : min(envsteps_so_far+10, len(self.replay_buffer.obs))]
-        #acns1 = self.replay_buffer.acs#[envsteps_so_far : min(envsteps_so_far+10, len(self.replay_buffer.obs))]
-        #upd = self.update(obsvns, acns)
         self.beta = 1 / (1 + envsteps_so_far/1000)
         upd = self.update(trajs)
         return {'episode_loss': upd, 'trajectories': trajs, 'current_train_envsteps': 50} #you can return more metadata if you want to
@@ -178,11 +164,13 @@ class RLAgent(BaseAgent):
         self.args = args
         #initialize your model and optimizer and other variables you may need
         self.model = nn.Sequential(
-                nn.Linear(self.observation_dim, 64),
+                nn.LayerNorm(self.observation_dim),
+                nn.Linear(self.observation_dim, 4*self.observation_dim),
                 nn.LeakyReLU(),
-                nn.Linear(64, 4*self.action_dim),
-                nn.LeakyReLU(),
+                nn.Linear(4*self.observation_dim, 4*self.action_dim),
+                nn.LayerNorm(4*self.action_dim),
                 nn.Linear(4*self.action_dim, 2*self.action_dim),
+                nn.Tanh()
             )
         
         self.critic = nn.Sequential(
@@ -198,7 +186,7 @@ class RLAgent(BaseAgent):
         self.loss_critic = nn.MSELoss(reduction = 'sum')
         self.optimizer = torch.optim.Adam(self.model.parameters())
         self.optimizer_critic = torch.optim.Adam(self.critic.parameters())
-
+        self.sampling = False
     
     def forward(self, observation: torch.FloatTensor):
         #*********YOUR CODE HERE******************
@@ -228,6 +216,9 @@ class RLAgent(BaseAgent):
         a_v = torch.clamp(torch.abs(x[:,self.action_dim:]), min = self.hyperparameters["std_min"])
         ms = torch.distributions.Normal(a_m, a_v)
         action = ms.sample()
+        r = random.random()
+        if r > self.hyperparameters["prob_rand_sample_training"]: ## Happens with v little prob 
+            action = 2 * torch.rand((1, self.action_dim)) - 1
         return action
 
     
@@ -257,7 +248,7 @@ class RLAgent(BaseAgent):
                 actual_action = torch.from_numpy(traj["action"][step])
                 #l1 = torch.norm(la)
                 l1 = self.loss_fn(actual_action, a_m, a_v)
-                reward = traj['reward'][step]
+                reward = step ** 3 #traj['reward'][step] + (step ** 3) # Highly promoting higher epsiode lengths
                 score += reward * (self.hyperparameters["gamma"]**step) #track episode score
                 li.append(l1)
                 rewards.append(reward)
@@ -274,9 +265,11 @@ class RLAgent(BaseAgent):
                 
             for step in range(len(acc_rewards)):
                 ## Step 2. Fit V_phi_pi to sampled new rewards
-                trj_reward_discounted = torch.tensor(acc_rewards[step]).to(torch.float64)
+                trj_reward_discounted = torch.Tensor([acc_rewards[step]]).to(torch.float64)
                 state = torch.from_numpy(traj["observation"][step])
                 estimated_reward = self.critic(state).to(torch.float64)
+                #print("estimated_reward by critic_network, shape =", estimated_reward, estimated_reward.shape)
+                #print("reward from trajectory, discounted, shape =", trj_reward_discounted, trj_reward_discounted.shape)
                 critic_loss = self.loss_critic(trj_reward_discounted, estimated_reward).to(torch.float64)
                 self.optimizer_critic.zero_grad()
                 critic_loss.backward()
@@ -310,8 +303,10 @@ class RLAgent(BaseAgent):
     def train_iteration(self, env, envsteps_so_far, render=False, itr_num=None, **kwargs):
         #*********YOUR CODE HERE******************
         self.train()
+        self.sampling = True
         trajs = utils.sample_n_trajectories(env, self, self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], False)
-        self.hyperparameters["alpha"] = 1/(1 + np.sqrt(envsteps_so_far/1000))
+        self.sampling = False
+        self.hyperparameters["alpha"] = 1/(1 + envsteps_so_far/1000)
         upd = self.update(trajs)
 
         return {'episode_loss': upd, 'trajectories': trajs, 'current_train_envsteps': self.hyperparameters["ntraj"]} #you can return more metadata if you want to
