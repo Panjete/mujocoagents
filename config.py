@@ -62,7 +62,8 @@ configs = {
                 "ntraj" : 50,
                 "maxtraj" : 400,
                 "std_min": 0.001,
-                "gamma" : 0.95
+                "gamma" : 0.95,
+                "alpha" : 1.0
             },
             "num_iteration": 1000,
 

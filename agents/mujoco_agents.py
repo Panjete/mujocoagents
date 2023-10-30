@@ -247,8 +247,6 @@ class RLAgent(BaseAgent):
         losses = []
         for traj in trajs:
             ## Step 1: getting trajectories
-            # rewards = []
-            # log_actions = []
             score = 0
             li = [] ## Houses log(pi_theta(a_it|s_it)) for all t in this traj i
             rewards = []
@@ -280,7 +278,6 @@ class RLAgent(BaseAgent):
                 state = torch.from_numpy(traj["observation"][step])
                 estimated_reward = self.critic(state).to(torch.float64)
                 critic_loss = self.loss_critic(trj_reward_discounted, estimated_reward).to(torch.float64)
-                #print("Dtypes trj_reward, estimated_rward and loss", trj_reward_discounted.dtype, estimated_reward.dtype, critic_loss.dtype)
                 self.optimizer_critic.zero_grad()
                 critic_loss.backward()
                 self.optimizer_critic.step()
@@ -297,17 +294,10 @@ class RLAgent(BaseAgent):
                 ## Step 4 : log(pi(a_it, s_it)) * A_pi_s_i
                 li[step] = li[step] * A_pi_s_i
                 #li[step] = acc_rewards[step] * li[step] ## Without baseline, log(pi(a_it, s_it)) * sum(r(s_t', a_t')) for t' = t to T
-    
 
             losses.append(sum(li))   
-            #Calculate Gt (cumulative discounted rewards)
-            #rewards = process_rewards(rewards)
-            #adjusting policy parameters with gradient ascent
-            # loss = []
-            # for r, la in zip(rewards, log_actions):
-                
-            #     loss.append(-r * la) # a negative sign since network will perform gradient descent and we are doing gradient ascent
-        loss = (1/n) * sum(losses)    
+
+        loss = self.hyperparameters["alpha"] * (1/n) * sum(losses)    
         #Step 5 : Backpropagation on theta
         self.optimizer.zero_grad()
         loss.backward()
@@ -321,6 +311,7 @@ class RLAgent(BaseAgent):
         #*********YOUR CODE HERE******************
         self.train()
         trajs = utils.sample_n_trajectories(env, self, self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], False)
+        self.hyperparameters["alpha"] = 1/(1 + np.sqrt(envsteps_so_far/1000))
         upd = self.update(trajs)
 
         return {'episode_loss': upd, 'trajectories': trajs, 'current_train_envsteps': self.hyperparameters["ntraj"]} #you can return more metadata if you want to
