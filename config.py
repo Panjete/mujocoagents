@@ -77,6 +77,7 @@ configs = {
                 "reward_scale" : 2
             },
             "num_iteration": 100000,
+            "episode_len" : 3000
 
         },
 
@@ -110,10 +111,19 @@ configs = {
         "RL":{
             #You can add or change the keys here
                "hyperparameters": {
-                
+                "ntraj" : 50,
+                "maxtraj" : 3000,
+                "std_min": 0.001,
+                "gamma" : 0.99,
+                "alpha" : 0.0003,
+                "beta" : 0.0003,
+                "max_buffer_size" : 100000,
+                "prob_rand_sample_training" : 0.99,
+                "tau" : 0.005,
+                "reward_scale" : 2
             },
-            "num_iteration": 100,
-
+            "num_iteration": 2000,
+            "episode_len" : 3000
 
         },
         

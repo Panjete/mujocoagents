@@ -272,15 +272,16 @@ class RLAgent(BaseAgent):
         self.reward_scale = self.hyperparameters["reward_scale"]    ## For determining what weightage to give to reward and predicted reward
 
         # Initialising predictors and quality estimators
-        print("MAX TRAJ LEN =", self.hyperparameters["maxtraj"])
+        #print("MAX TRAJ LEN =", self.hyperparameters["maxtraj"])
         self.actor = Actor(self.alpha, self.observation_dim, self.action_dim, "Actor")   
         self.critic1 = Critic(self.observation_dim, self.action_dim, self.beta, "Critic1")
         self.critic2 = Critic(self.observation_dim, self.action_dim, self.beta, "Critic2")
         self.value =  Value(self.observation_dim, self.beta, "Value")
         self.target_value =  Value(self.observation_dim, self.beta, "target_value")
+
+        self.cur_max_reward = 0.0
         self.update_network_parameters(tau = 1)
        
-
     def forward(self, observation: torch.FloatTensor):
         #*********YOUR CODE HERE******************
         actions, _ = self.actor.sample_normal(observation, r = False)
@@ -302,58 +303,61 @@ class RLAgent(BaseAgent):
         self.target_value.load_state_dict(vs_dict)
 
     ## Filhaal learns one trajectory at a time, maybe try to implement a batch one?
-    def learn(self, traj):
+    def learn(self, trajs):
         # ## May need to do np.append instead of list comprehension
-        traj = traj[0]
-        reward = torch.tensor(traj["reward"], dtype = torch.float).to(self.actor.device) ## Rewards earned in this trajectory
-        state_ = torch.tensor(traj["next_observation"], dtype = torch.float).to(self.actor.device) ## s' - the states the trajectory goes into after action a
-        state = torch.tensor(traj["observation"], dtype = torch.float).to(self.actor.device) ## s - the current states being analysed
-        action = torch.tensor(traj["action"], dtype = torch.float).to(self.actor.device) ## action a actually taken in the trajectory
-        done = torch.tensor(traj["terminal"], dtype = torch.float).to(self.actor.device) ## Terminal state or not?
+        rewards_earned = 0.0
+        for traj in trajs:
+            reward = torch.tensor(traj["reward"], dtype = torch.float).to(self.actor.device) ## Rewards earned in this trajectory
+            state_ = torch.tensor(traj["next_observation"], dtype = torch.float).to(self.actor.device) ## s' - the states the trajectory goes into after action a
+            state = torch.tensor(traj["observation"], dtype = torch.float).to(self.actor.device) ## s - the current states being analysed
+            action = torch.tensor(traj["action"], dtype = torch.float).to(self.actor.device) ## action a actually taken in the trajectory
+            done = torch.tensor(traj["terminal"], dtype = torch.float).to(self.actor.device) ## Terminal state or not?
 
-        #np.concatenate(numpy_arrays, axis=0)
-        #print("done = ", done)
-        value = self.value(state).view(-1) ## Collapse across batch dimension - anyways 1
-        value_ = self.target_value(state_).view(-1) ## Collapse across batch dimension - anyways 1
-        value_[-1] = 0.0
+            #np.concatenate(numpy_arrays, axis=0)
+            value = self.value(state).view(-1) ## Collapse across batch dimension - anyways 1
+            value_ = self.target_value(state_).view(-1) ## Collapse across batch dimension - anyways 1
+            value_[-1] = 0.0
 
-        actions, log_probs = self.actor.sample_normal(state, r = False) ## Find actions and corres. log_prob suggested by actor network, Do not reparametrize
-        log_probs = log_probs#.view(-1)
-        q1_np = self.critic1.forward(state,actions) ## How good is the suggested state-action pair
-        q2_np = self.critic2.forward(state,actions) ## How good is the suggested state-action pair, second opinion 
-        critic_value = torch.min(q1_np, q2_np) ## For removing over-estimation bias
-        critic_value = critic_value.view(-1) 
+            actions, log_probs = self.actor.sample_normal(state, r = False) ## Find actions and corres. log_prob suggested by actor network, Do not reparametrize
+            log_probs = log_probs#.view(-1)
+            q1_np = self.critic1.forward(state,actions) ## How good is the suggested state-action pair
+            q2_np = self.critic2.forward(state,actions) ## How good is the suggested state-action pair, second opinion 
+            critic_value = torch.min(q1_np, q2_np) ## For removing over-estimation bias
+            critic_value = critic_value.view(-1) 
 
-        self.value.optimizer.zero_grad()
-        value_target = critic_value - log_probs.view(-1) ## 
-        value_loss = 0.5 * F.mse_loss(value, value_target) ## How far is the estimation of 
-        value_loss.backward(retain_graph=True)
-        self.value.optimizer.step()
+            self.value.optimizer.zero_grad()
+            value_target = critic_value - log_probs.view(-1) ## 
+            value_loss = 0.5 * F.mse_loss(value, value_target) ## How far is the estimation of 
+            value_loss.backward(retain_graph=True)
+            self.value.optimizer.step()
 
-        actions, log_probs = self.actor.sample_normal(state, r = True)
-        log_probs = log_probs.view(-1)
-        q1_np = self.critic1.forward(state,actions)
-        q2_np = self.critic2.forward(state,actions)
-        critic_value = torch.min(q1_np, q2_np)
-        critic_value = critic_value.view(-1)
+            actions, log_probs = self.actor.sample_normal(state, r = True)
+            log_probs = log_probs.view(-1)
+            q1_np = self.critic1.forward(state,actions)
+            q2_np = self.critic2.forward(state,actions)
+            critic_value = torch.min(q1_np, q2_np)
+            critic_value = critic_value.view(-1)
 
-        actor_loss = torch.mean(log_probs- critic_value)
-        self.actor.optimizer.zero_grad()
-        actor_loss.backward(retain_graph=True)
-        self.actor.optimizer.step()
+            actor_loss = torch.mean(log_probs- critic_value)
+            self.actor.optimizer.zero_grad()
+            actor_loss.backward(retain_graph=True)
+            self.actor.optimizer.step()
 
-        self.critic1.optimizer.zero_grad()
-        self.critic2.optimizer.zero_grad()
-        q_hat = self.reward_scale * reward + self.gamma * value_
-        q1_op = self.critic1.forward(state,action).view(-1)
-        q2_op = self.critic2.forward(state,action).view(-1)
-        critic_loss = 0.5 * (F.mse_loss(q1_op, q_hat) + F.mse_loss(q2_op, q_hat))
-        critic_loss.backward()
-        self.critic1.optimizer.step()
-        self.critic2.optimizer.step()
+            self.critic1.optimizer.zero_grad()
+            self.critic2.optimizer.zero_grad()
+            q_hat = self.reward_scale * reward + self.gamma * value_
+            q1_op = self.critic1.forward(state,action).view(-1)
+            q2_op = self.critic2.forward(state,action).view(-1)
+            critic_loss = 0.5 * (F.mse_loss(q1_op, q_hat) + F.mse_loss(q2_op, q_hat))
+            critic_loss.backward()
+            self.critic1.optimizer.step()
+            self.critic2.optimizer.step()
 
-        self.update_network_parameters()
+            self.update_network_parameters()
 
+            rewards_earned += float(reward.sum())
+        #print("REWARDS EARNED IN THIS LEARNING CYCLE =", rewards_earned)
+        return  rewards_earned/self.batch_size
         
         
     @torch.no_grad()
@@ -376,16 +380,13 @@ class RLAgent(BaseAgent):
     def train_iteration(self, env, envsteps_so_far, render=False, itr_num=None, **kwargs):
         #*********YOUR CODE HERE******************
         self.train()
-        # self.sampling = True
         trajs = utils.sample_n_trajectories(env, self, self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], False)
-        # self.sampling = False
-        # self.hyperparameters["alpha"] = 1/(1 + envsteps_so_far/1000)
-        # upd = self.update(trajs)
-        self.learn(trajs)
-        if envsteps_so_far%1000 == 0:
+        cur_reward = self.learn(trajs)
+        if envsteps_so_far%1000 == 0 and cur_reward > self.cur_max_reward:
+            self.cur_max_reward = cur_reward
             model_save_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../best_models")
             torch.save(self.state_dict(), os.path.join(model_save_path, "model_"+ self.args.env_name + "_"+ self.args.exp_name+".pth"))
-        return {'episode_loss': 0.0, 'trajectories': trajs, 'current_train_envsteps': self.hyperparameters["ntraj"]} #you can return more metadata if you want to
+        return {'episode_loss': cur_reward, 'trajectories': trajs, 'current_train_envsteps': self.hyperparameters["ntraj"]} #you can return more metadata if you want to
 
 
 

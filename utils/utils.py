@@ -19,7 +19,7 @@ def sample_trajectory(
     ob = env.reset()
     obs, acs, rewards, next_obs, terminals, image_obs = [], [], [], [], [], []
     steps = 0
-    print("MAX TRAJ LEN INSIDE FUNCTION 2=", max_length)
+    #print("MAX TRAJ LEN INSIDE FUNCTION 2=", max_length)
     while True:
         # render an image
         if render:
@@ -93,7 +93,7 @@ def sample_n_trajectories(
 ):
     """Collect ntraj rollouts."""
     trajs = []
-    print("MAX TRAJ LEN INSIDE FUNCTION =", max_length)
+    #print("MAX TRAJ LEN INSIDE FUNCTION =", max_length)
     for _ in range(ntraj):
         # collect rollout
         traj = sample_trajectory(env, policy, max_length, render)

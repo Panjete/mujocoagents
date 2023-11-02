@@ -50,6 +50,7 @@ def setup_agent(args, configs):
 def train_agent(args, configs):
     logger = Logger(args.logdir)
     max_ep_len = configs.get("episode_len", None) or env.spec.max_episode_steps
+    # print("EPISODE LEN =", max_ep_len)
     # set random seeds
     ptu.init_gpu(use_gpu=not args.no_gpu, gpu_id=args.which_gpu)
 
@@ -120,8 +121,8 @@ def train_agent(args, configs):
     plt.plot(np.array(it_num), np.array(avg_rewards))
     plt.title("Evaluation Average Reward vs Iteration Number")
     plt.show()
-
-
+    plt.savefig(args.exp_name + "_LearningCurve.png")
+    return
 
 
 def main():
