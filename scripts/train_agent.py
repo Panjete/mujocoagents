@@ -15,6 +15,9 @@ import config as exp_config
 import utils.utils as utils
 import utils.pytorch_util as ptu
 from utils.logger import Logger
+import matplotlib.pyplot as plt
+
+
 
 MAX_NVIDEO = 2
 
@@ -60,7 +63,8 @@ def train_agent(args, configs):
         fps = env.env.metadata["render_fps"]
 
     agent.to(ptu.device)
-
+    avg_rewards = []
+    it_num = []
     for itr in range(configs['num_iteration']):
         print(f"\n********** Iteration {itr} ************")
         
@@ -92,6 +96,9 @@ def train_agent(args, configs):
             for key, value in logs.items():
                 print("{} : {}".format(key, value))
                 logger.log_scalar(value, key, itr)
+                if key == "Eval_AverageReturn":
+                    it_num.append(itr)
+                    avg_rewards.append(value)
             print("Done logging...\n\n")
 
             logger.flush()
@@ -110,6 +117,10 @@ def train_agent(args, configs):
                 max_videos_to_save=MAX_NVIDEO,
                 video_title="eval_rollouts",
             )
+    plt.plot(np.array(it_num), np.array(avg_rewards))
+    plt.title("Evaluation Average Reward vs Iteration Number")
+    plt.show()
+
 
 
 
