@@ -37,7 +37,7 @@ class ExpertPolicyJIT(object):
 def load_expert_policy(env, env_name, jit = False):
     import os
     if not jit:
-        state_dict =  torch.load(os.path.join("./policies/experts", env_name + ".pth"))
+        state_dict =  torch.load(os.path.join("./policies/experts", env_name + ".pth"), map_location=ptu.device)
         state_dict = {"policy."+k :v for k,v in state_dict.items()}
         expert_policy = ExpertPolicy(env.observation_space.shape[0], env.action_space.shape[0], len(state_dict)//2 -1, state_dict['policy.0.weight'].shape[0])
 

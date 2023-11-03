@@ -40,7 +40,7 @@ class ImitationAgent(BaseAgent):
         self.args = args
         self.replay_buffer = ReplayBuffer(5000) #you can set the max size of replay buffer if you want
         self.beta = 0.5
-
+        self.cur_max_reward = 0
         #initialize your model and optimizer and other variables you may need
         
 
@@ -79,26 +79,18 @@ class ImitationAgent(BaseAgent):
     @torch.no_grad()
     def get_action(self, observation: torch.FloatTensor):
         #*********YOUR CODE HERE******************
-        
-        #action = torch.from_numpy(self.replay_buffer.acs[0]) #change this to your action
-        # x = nn.functional.relu(self.conv1(observation))
-        # #print("Forwading action shape1 =", x.shape)
-        # x = nn.functional.relu(self.conv2(x))
-        # #print("Forwading action shape2 =", x.shape)
-        # return x
-    
-        # action = torch.from_numpy(self.expert_policy.get_action(observation))
-        # return action 
         return self.model(observation)
     
     
     def update(self, trajs):
         #*********YOUR CODE HERE******************
         avg_loss = 0.0
+        avg_score = 0.0
         j = 0
         for traj in trajs:
             for i in range(len(traj["action"])):
                 obsvn = torch.from_numpy(traj["observation"][i])
+                avg_score += traj["reward"][i]
                 if random.random() < self.beta:
                     ac = torch.from_numpy(self.expert_policy.get_action(torch.from_numpy(traj["observation"][i])))
                 else:
@@ -113,7 +105,7 @@ class ImitationAgent(BaseAgent):
            
         
         self.replay_buffer.add_rollouts(trajs)
-        return avg_loss/j
+        return avg_score/len(trajs) #avg_loss/j
     
 
 
@@ -121,23 +113,18 @@ class ImitationAgent(BaseAgent):
         if not hasattr(self, "expert_policy"):
             self.expert_policy, initial_expert_data = load_expert_policy(env, self.args.env_name)
             self.replay_buffer.add_rollouts(initial_expert_data)
-        
-        #print("buffer number of paths = ", len(self.replay_buffer.paths))
-        #print("buffer first traj obs, reward, next_obs, action, terminal= ", len(self.replay_buffer.paths[0]["observation"]), len(self.replay_buffer.paths[0]["reward"]), len(self.replay_buffer.paths[0]["next_observation"]), len(self.replay_buffer.paths[0]["action"]), len(self.replay_buffer.paths[0]["terminal"]))
-        #print("buffer first obs, ac shape= ", self.replay_buffer.obs[0].shape, self.replay_buffer.acs[0].shape)
-        #print("buffer first obs, ac = ", self.replay_buffer.obs[0], self.replay_buffer.acs[0])
-        
-        #print("actual shape = ", torch.from_numpy(self.replay_buffer.acs[0]).shape)
-        #*********YOUR CODE HERE******************
-        #for i in range(len(envsteps_so_far, min(envsteps_so_far+10, len(self.replay_buffer.obs)))):
-        #print("env slice = ",envsteps_so_far ,  min(envsteps_so_far+10, len(self.replay_buffer.obs)) )
 
         max_lengths = [len(path) for path in self.replay_buffer.paths]
         print("min, avg max of traj lengths orig", max(max_lengths), np.average(max_lengths), max(max_lengths))
         trajs = utils.sample_n_trajectories(env, self, self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], False) #
         self.beta = 1 / (1 + envsteps_so_far/1000)
         upd = self.update(trajs)
-        return {'episode_loss': upd, 'trajectories': trajs, 'current_train_envsteps': 50} #you can return more metadata if you want to
+        if ((envsteps_so_far//self.hyperparameters["ntraj"])%10) == 0 and upd > self.cur_max_reward:
+            print("saving Model with score : ",  upd)
+            self.cur_max_reward = upd
+            model_save_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../best_models")
+            torch.save(self.state_dict(), os.path.join(model_save_path, "model_"+ self.args.env_name + "_"+ self.args.exp_name+".pth"))
+        return {'episode_loss': upd, 'trajectories': trajs, 'current_train_envsteps': self.hyperparameters["ntraj"]} #you can return more metadata if you want to
 
 # For calculating goodness of State Action Pair
 class Critic(nn.Module):

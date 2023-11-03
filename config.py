@@ -14,7 +14,7 @@ configs = {
                 "ntraj" : 50,
                 "maxtraj" : 1000
             },
-            "num_iteration": 100,
+            "num_iteration": 200,
 
         },
 
