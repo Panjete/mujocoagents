@@ -245,8 +245,6 @@ class Actor(nn.Module):
 
 
 
-
-
 class RLAgent(BaseAgent):
 
     '''
@@ -319,7 +317,7 @@ class RLAgent(BaseAgent):
             value_[-1] = 0.0
 
             actions, log_probs = self.actor.sample_normal(state, r = False) ## Find actions and corres. log_prob suggested by actor network, Do not reparametrize
-            log_probs = log_probs#.view(-1)
+            #log_probs = log_probs#.view(-1)
             q1_np = self.critic1.forward(state,actions) ## How good is the suggested state-action pair
             q2_np = self.critic2.forward(state,actions) ## How good is the suggested state-action pair, second opinion 
             critic_value = torch.min(q1_np, q2_np) ## For removing over-estimation bias
@@ -399,17 +397,23 @@ class ImitationSeededRL(ImitationAgent, RLAgent):
     If everything goes well, you might see an ant running and jumping as seen in lecture slides.
     '''
     
-    def __init__(self, observation_dim:int, action_dim:int, args = None, discrete:bool = False, **hyperparameters ):
+    def __init__(self, observation_dim:int, action_dim:int, args = None, discrete:bool = False, **hyperparameters):
         super().__init__()
         self.hyperparameters = hyperparameters
         self.action_dim  = action_dim
         self.observation_dim = observation_dim
         self.is_action_discrete = discrete
         self.args = args
-        #initialize your model and optimizer and other variables you may need
 
         
-        self.model = RLAgent(observation_dim, action_dim, args, discrete, **hyperparameters)
+        #initialize your model and optimizer and other variables you may need
+
+        self.imitator = ImitationAgent(observation_dim, action_dim, args, discrete, hyperparameters)
+        self.imitator_itrs = self.hyperparameters["imitator_itr"]
+        self.imitator_trained = False
+
+
+        self.rlagent = RLAgent(observation_dim, action_dim, args, discrete, hyperparameters)
         model_save_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../best_models")
         model_file = os.path.join(model_save_path, "model_"+ self.args.env_name + "_"+ self.args.exp_name+".pth")
         state_dict = torch.load(model_file)
@@ -417,6 +421,8 @@ class ImitationSeededRL(ImitationAgent, RLAgent):
 
         # Put the model in evaluation mode (if needed)
         self.model.eval()
+
+        
 
 
     def forward(self, observation: torch.FloatTensor):
@@ -433,6 +439,19 @@ class ImitationSeededRL(ImitationAgent, RLAgent):
         #*********YOUR CODE HERE******************
         #you may want to use the itr_num to decide between IL and RL
         #self.train()
+
+        if self.imitator_trained == False:
+            #self.expert_policy, initial_expert_data = load_expert_policy(env, self.args.env_name)
+            #self.replay_buffer.add_rollouts(initial_expert_data)
+            total_envsteps = 0
+            for itr in range(self.imitator_itrs):
+                print(f"\n********** Imitation Phase Iteration {itr} ************")
+                train_info = self.imitator.train_iteration(env, envsteps_so_far = total_envsteps, render=False, itr_num = itr)
+                total_envsteps += train_info['current_train_envsteps']
+            print("Imitator Trained successfully")
+            self.imitator_trained = True
+            
+        
         trajs = utils.sample_n_trajectories(env, self, self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], False)
         return {'episode_loss': 0.0, 'trajectories': trajs, 'current_train_envsteps': self.hyperparameters["ntraj"]} #you can return more metadata if you want to
 
