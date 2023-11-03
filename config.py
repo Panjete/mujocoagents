@@ -21,15 +21,20 @@ configs = {
         "RL":{
             #An example set of hyperparameters is given below
             #You can add or change the hyperparameters and other keys here here
-             "hyperparameters": {
-                'n_layers': 4,
-                'hidden_size': 64,
-                'learning_rate': 0.001,
-                'batch_size': 3000,
-                'max_ep_len': None,
-                'discount' : 0.9,
+            "hyperparameters": {
+                "ntraj" : 50,
+                "maxtraj" : 3000,
+                "std_min": 0.001,
+                "gamma" : 0.99,
+                "alpha" : 0.0003,
+                "beta" : 0.0003,
+                "max_buffer_size" : 100000,
+                "prob_rand_sample_training" : 0.99,
+                "tau" : 0.005,
+                "reward_scale" : 2
             },
-            "num_iteration": 200,
+            "num_iteration": 2000,
+            "episode_len" : 3000
         },
         
         "imitation-RL":{
