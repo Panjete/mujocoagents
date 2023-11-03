@@ -31,7 +31,7 @@ class ImitationAgent(BaseAgent):
         You can explore policies/experts.py to see how this function is implemented.
     '''
 
-    def __init__(self, observation_dim:int, action_dim:int, args = None, discrete:bool = False, **hyperparameters ):
+    def __init__(self, observation_dim:int, action_dim:int, args = None, discrete:bool = False, **hyperparameters):
         super().__init__()
         self.hyperparameters = hyperparameters
         self.action_dim  = action_dim
@@ -41,8 +41,7 @@ class ImitationAgent(BaseAgent):
         self.replay_buffer = ReplayBuffer(5000) #you can set the max size of replay buffer if you want
         self.beta = 0.5
         self.cur_max_reward = 0
-        #initialize your model and optimizer and other variables you may need
-        
+        self.save = self.hyperparameters["save"]
 
         self.model = nn.Sequential(
                 nn.LayerNorm(self.observation_dim),
@@ -55,35 +54,18 @@ class ImitationAgent(BaseAgent):
             )
         self.learning_rate = 1e-3
         self.loss_fn = nn.MSELoss(reduction='sum')
-        #self.conv1 = nn.Conv1d(1, 12, 3)
-        #self.conv2 = nn.Conv1d(12, 1, observation_dim-action_dim-1)
-        #self.optimizer = torch.optim.RMSprop(self.model.parameters(), lr=self.learning_rate)
         self.optimizer = torch.optim.Adam(self.model.parameters())
 
 
     def forward(self, observation: torch.FloatTensor):
-        #*********YOUR CODE HERE******************
-        #print("required shape = ", self.action_dim)
-        #print("actual shape = ", self.replay_buffer[0].shape)
-        #action = torch.from_numpy(self.replay_buffer.acs[0]) #change this to your action
-
-        # x = nn.functional.relu(self.conv1(observation))
-        # x = nn.functional.relu(self.conv2(x))
-        # #print("Forwading action shape =", x.shape)
-        # return x
-    
-        # action = torch.from_numpy(self.expert_policy.get_action(observation))
-        # return action
         return self.model(observation)
 
     @torch.no_grad()
     def get_action(self, observation: torch.FloatTensor):
-        #*********YOUR CODE HERE******************
         return self.model(observation)
     
     
     def update(self, trajs):
-        #*********YOUR CODE HERE******************
         avg_loss = 0.0
         avg_score = 0.0
         j = 0
@@ -105,7 +87,7 @@ class ImitationAgent(BaseAgent):
            
         
         self.replay_buffer.add_rollouts(trajs)
-        return avg_score/len(trajs) #avg_loss/j
+        return avg_score/len(trajs)
     
 
 
@@ -114,17 +96,16 @@ class ImitationAgent(BaseAgent):
             self.expert_policy, initial_expert_data = load_expert_policy(env, self.args.env_name)
             self.replay_buffer.add_rollouts(initial_expert_data)
 
-        max_lengths = [len(path) for path in self.replay_buffer.paths]
-        print("min, avg max of traj lengths orig", max(max_lengths), np.average(max_lengths), max(max_lengths))
         trajs = utils.sample_n_trajectories(env, self, self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], False) #
         self.beta = 1 / (1 + envsteps_so_far/1000)
         upd = self.update(trajs)
-        if ((envsteps_so_far//self.hyperparameters["ntraj"])%10) == 0 and upd > self.cur_max_reward:
+        if self.save and ((envsteps_so_far//self.hyperparameters["ntraj"])%10) == 0 and upd > self.cur_max_reward:
             print("saving Model with score : ",  upd)
             self.cur_max_reward = upd
             model_save_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../best_models")
             torch.save(self.state_dict(), os.path.join(model_save_path, "model_"+ self.args.env_name + "_"+ self.args.exp_name+".pth"))
         return {'episode_loss': upd, 'trajectories': trajs, 'current_train_envsteps': self.hyperparameters["ntraj"]} #you can return more metadata if you want to
+
 
 # For calculating goodness of State Action Pair
 class Critic(nn.Module):
@@ -239,7 +220,7 @@ class RLAgent(BaseAgent):
     Note: Please read the note (1), (2), (3) in ImitationAgent class. 
     '''
 
-    def __init__(self, observation_dim:int, action_dim:int, args = None, discrete:bool = False, **hyperparameters ):
+    def __init__(self, observation_dim:int, action_dim:int, args = None, discrete:bool = False, **hyperparameters):
         super().__init__()
         self.hyperparameters = hyperparameters
         self.action_dim  = action_dim
@@ -350,6 +331,71 @@ class RLAgent(BaseAgent):
         actions, _ = self.actor.sample_normal(observation, r = False)
         return actions
 
+    def learn_actor(self, env, itr_nums, ntraj, maxtraj, imitator:ImitationAgent):
+        self.train()
+        print("Training Actor")
+        for _ in range(itr_nums):
+            trajs = utils.sample_n_trajectories(env, self, ntraj, maxtraj, False)
+            for traj in trajs:
+                
+                state = torch.tensor(traj["observation"], dtype = torch.float).to(self.actor.device) ## s - the current states being analysed
+                action = torch.tensor(traj["action"], dtype = torch.float).to(self.actor.device) ## action a actually taken in the trajectory
+                actions_to_replicate = imitator.forward(state)
+
+                #print("Actions DIM : ", action.size(), " reqd action DIM : ", actions_to_replicate.size())
+                actions, _ = self.actor.sample_normal(state, r = True)  ## Find actions and corres. log_prob suggested by actor network, Do not reparametrize
+    
+                actor_loss = F.mse_loss(actions, actions_to_replicate, reduction="mean")
+                self.actor.optimizer.zero_grad()
+                actor_loss.backward()
+                self.actor.optimizer.step()
+
+                self.update_network_parameters()
+        return
+    
+    def learn_critics(self, env, itr_nums, ntraj, maxtraj):
+        self.train()
+        print("Training Critics")
+        for _ in range(itr_nums):
+            trajs = utils.sample_n_trajectories(env, self, ntraj, maxtraj, False)
+            for traj in trajs:
+                reward = torch.tensor(traj["reward"], dtype = torch.float).to(self.actor.device) ## Rewards earned in this trajectory
+                state_ = torch.tensor(traj["next_observation"], dtype = torch.float).to(self.actor.device) ## s' - the states the trajectory goes into after action a
+                state = torch.tensor(traj["observation"], dtype = torch.float).to(self.actor.device) ## s - the current states being analysed
+                action = torch.tensor(traj["action"], dtype = torch.float).to(self.actor.device) ## action a actually taken in the trajectory
+                done = torch.tensor(traj["terminal"], dtype = torch.float).to(self.actor.device) ## Terminal state or not?
+
+                #np.concatenate(numpy_arrays, axis=0)
+                value = self.value(state).view(-1) ## Collapse across batch dimension - anyways 1
+                value_ = self.target_value(state_).view(-1) ## Collapse across batch dimension - anyways 1
+                value_[-1] = 0.0
+
+                actions, log_probs = self.actor.sample_normal(state, r = False) ## Find actions and corres. log_prob suggested by actor network, Do not reparametrize
+                #log_probs = log_probs#.view(-1)
+                q1_np = self.critic1.forward(state,actions) ## How good is the suggested state-action pair
+                q2_np = self.critic2.forward(state,actions) ## How good is the suggested state-action pair, second opinion 
+                critic_value = torch.min(q1_np, q2_np) ## For removing over-estimation bias
+                critic_value = critic_value.view(-1) 
+
+                self.value.optimizer.zero_grad()
+                value_target = critic_value - log_probs.view(-1) ## 
+                value_loss = 0.5 * F.mse_loss(value, value_target) ## How far is the estimation of 
+                value_loss.backward(retain_graph=True)
+                self.value.optimizer.step()
+
+
+                self.critic1.optimizer.zero_grad()
+                self.critic2.optimizer.zero_grad()
+                q_hat = self.reward_scale * reward + self.gamma * value_
+                q1_op = self.critic1.forward(state,action).view(-1)
+                q2_op = self.critic2.forward(state,action).view(-1)
+                critic_loss = 0.5 * (F.mse_loss(q1_op, q_hat) + F.mse_loss(q2_op, q_hat))
+                critic_loss.backward()
+                self.critic1.optimizer.step()
+                self.critic2.optimizer.step()
+
+                self.update_network_parameters()
+        return
     
     '''def update(self, observations, actions, advantage, q_values = None):
         #*********YOUR CODE HERE******************
@@ -385,60 +431,66 @@ class ImitationSeededRL(ImitationAgent, RLAgent):
     '''
     
     def __init__(self, observation_dim:int, action_dim:int, args = None, discrete:bool = False, **hyperparameters):
-        super().__init__()
+        RLAgent.__init__(self, observation_dim=observation_dim, action_dim=action_dim, args=args, discrete=discrete, **hyperparameters)
         self.hyperparameters = hyperparameters
         self.action_dim  = action_dim
         self.observation_dim = observation_dim
         self.is_action_discrete = discrete
         self.args = args
-
-        
-        #initialize your model and optimizer and other variables you may need
-
-        self.imitator = ImitationAgent(observation_dim, action_dim, args, discrete, hyperparameters)
-        self.imitator_itrs = self.hyperparameters["imitator_itr"]
+        self.imitator = ImitationAgent(observation_dim, action_dim, args, discrete, **hyperparameters)
         self.imitator_trained = False
 
-
-        self.rlagent = RLAgent(observation_dim, action_dim, args, discrete, hyperparameters)
-        model_save_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../best_models")
-        model_file = os.path.join(model_save_path, "model_"+ self.args.env_name + "_"+ self.args.exp_name+".pth")
-        state_dict = torch.load(model_file)
-        self.model.load_state_dict(state_dict)
-
-        # Put the model in evaluation mode (if needed)
-        self.model.eval()
-
-        
-
+        self.rlagent = RLAgent(observation_dim, action_dim, args, discrete, **hyperparameters)
+        self.cur_max_reward = 0.0
 
     def forward(self, observation: torch.FloatTensor):
-        #*********YOUR CODE HERE******************
-        actions, _ = self.model.actor.sample_normal(observation, r = False)
+        actions, _ = self.rlagent.actor.sample_normal(observation, r = False)
         return actions
     
     @torch.no_grad()
     def get_action(self, observation: torch.FloatTensor):
-        actions, _ = self.model.actor.sample_normal(observation, r = False)
+        actions, _ = self.rlagent.actor.sample_normal(observation, r = False)
         return actions
 
     def train_iteration(self, env, envsteps_so_far, render=False, itr_num=None, **kwargs):
-        #*********YOUR CODE HERE******************
-        #you may want to use the itr_num to decide between IL and RL
-        #self.train()
-
         if self.imitator_trained == False:
-            #self.expert_policy, initial_expert_data = load_expert_policy(env, self.args.env_name)
-            #self.replay_buffer.add_rollouts(initial_expert_data)
+            ## One time thing only
             total_envsteps = 0
-            for itr in range(self.imitator_itrs):
+            for itr in range(self.hyperparameters["imitator_itr"]):
                 print(f"\n********** Imitation Phase Iteration {itr} ************")
                 train_info = self.imitator.train_iteration(env, envsteps_so_far = total_envsteps, render=False, itr_num = itr)
                 total_envsteps += train_info['current_train_envsteps']
-            print("Imitator Trained successfully")
+            print("Imitator Initialised and Trained successfully")
+            self.rlagent.learn_actor(env, self.hyperparameters["actor_learn_itr"], self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], self.imitator)
+            print("RL Actor trained and Initialised successfully")
+            self.rlagent.learn_critics(env, self.hyperparameters["critic_learn_itr"], self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"])
+            print("RL Critics trained and Initialised successfully")
             self.imitator_trained = True
             
-        
+        fraction_done = (itr_num/self.hyperparameters["total_train_iterations"])**(0.5)
+        r = random.random()
+        if fraction_done < r:
+            ## Happens less and less frequently as time passes
+            ## train Imitator
+            print("Seeded Model Re-Calibrating with Imitation Agent for itr = ", itr_num)
+            self.rlagent.learn_actor(env, self.hyperparameters["recalibrating_iters"], self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], self.imitator)
+            self.rlagent.learn_critics(env,self.hyperparameters["recalibrating_iters"], self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"])
+        else:
+            ## Happens more and more frequently as time passes
+            ## ALlow model to explore
+            print("Seeded Model Exploring for itr = ", itr_num)
+            for _ in range(self.hyperparameters["exploring_iters"]):
+                trajs = utils.sample_n_trajectories(env, self, self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], False)
+                self.rlagent.learn(trajs)
+
+        trajs = utils.sample_n_trajectories(env, self, self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], False)
+        rewards = [sum(traj["reward"]) for traj in trajs]
+        cur_reward = sum(rewards)/len(rewards)
+        if envsteps_so_far%100 == 0 and cur_reward > self.cur_max_reward:
+            print("Saving model with avg score = ", )
+            self.cur_max_reward = cur_reward
+            model_save_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../best_models")
+            torch.save(self.state_dict(), os.path.join(model_save_path, "model_"+ self.args.env_name + "_"+ self.args.exp_name+".pth"))
         trajs = utils.sample_n_trajectories(env, self, self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], False)
         return {'episode_loss': 0.0, 'trajectories': trajs, 'current_train_envsteps': self.hyperparameters["ntraj"]} #you can return more metadata if you want to
 

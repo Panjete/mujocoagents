@@ -149,6 +149,7 @@ def main():
     if not (os.path.exists(model_save_path)):
         os.makedirs(model_save_path)
 
+    print("ARGS ", args)
     logdir = (
         args.exp_name
         + "_"

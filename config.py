@@ -12,9 +12,10 @@ configs = {
             #You can add or change the keys here
             "hyperparameters": {
                 "ntraj" : 50,
-                "maxtraj" : 1000
+                "maxtraj" : 1000,
+                "save" : True
             },
-            "num_iteration": 200,
+            "num_iteration": 50,
 
         },
 
@@ -40,9 +41,24 @@ configs = {
         "imitation-RL":{
             #You can add or change the keys here
              "hyperparameters": {
-                
+                "imitator_itr" : 200, ## 200 * 50 trajectories for imitator training
+                "critic_learn_itr": 200, ## 200 * 50 tuning actor
+                "actor_learn_itr" : 200, ## 500 * 50 trajs tuning critics to match actor values
+                "ntraj" : 10,
+                "maxtraj" : 1000,
+                "recalibrating_iters" : 5, ## 10 * 50 trajs each time the model recalibrates
+                "exploring_iters" : 50, ## 50 * 50 trajs each time the model explores 
+                "total_train_iterations" : 200, ## 100 iterations, x explore y recalibrate
+                "std_min": 0.001,
+                "gamma" : 0.99,
+                "alpha" : 0.0003,
+                "beta" : 0.0003,
+                "tau" : 0.005,
+                "reward_scale" : 2,
+                "save" : False
+
             },
-            "num_iteration": 100,
+            "num_iteration": 200,
 
             
         }
@@ -55,7 +71,8 @@ configs = {
             #You can add or change the keys here
               "hyperparameters": {
                 "ntraj" : 50,
-                "maxtraj" : 400
+                "maxtraj" : 400,
+                "save" : True
             },
             "num_iteration": 75,
 
@@ -108,7 +125,8 @@ configs = {
             #You can add or change the keys here
               "hyperparameters": {
                 "ntraj" : 50,
-                "maxtraj" : 400
+                "maxtraj" : 400,
+                "save" : True
             },
             "num_iteration": 30,
         },
@@ -125,7 +143,8 @@ configs = {
                 "max_buffer_size" : 100000,
                 "prob_rand_sample_training" : 0.99,
                 "tau" : 0.005,
-                "reward_scale" : 2
+                "reward_scale" : 2,
+                "save" : False
             },
             "num_iteration": 2000,
             "episode_len" : 3000
