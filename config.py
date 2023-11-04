@@ -15,7 +15,7 @@ configs = {
                 "maxtraj" : 1000,
                 "save" : True
             },
-            "num_iteration": 50,
+            "num_iteration": 200,
 
         },
 
@@ -32,7 +32,8 @@ configs = {
                 "max_buffer_size" : 100000,
                 "prob_rand_sample_training" : 0.99,
                 "tau" : 0.005,
-                "reward_scale" : 2
+                "reward_scale" : 2,
+                "actor_critic" : False
             },
             "num_iteration": 2000,
             "episode_len" : 3000
@@ -51,9 +52,9 @@ configs = {
                 "total_train_iterations" : 200, ## 100 iterations, x explore y recalibrate
                 "std_min": 0.001,
                 "gamma" : 0.99,
-                "alpha" : 0.0003,
-                "beta" : 0.0003,
-                "tau" : 0.005,
+                "alpha" : 0.0001, ## Learn relatively slowly, "unlearns"
+                "beta" : 0.0001,
+                "tau" : 0.003,
                 "reward_scale" : 2,
                 "save" : False
 
@@ -74,7 +75,7 @@ configs = {
                 "maxtraj" : 400,
                 "save" : True
             },
-            "num_iteration": 75,
+            "num_iteration": 200,
 
         },
 
@@ -87,18 +88,20 @@ configs = {
             # alpha is the gradient addition parameter
             # 1-prob_rand_sample_training is the probability of taking a random action when training
                "hyperparameters": {
-                "ntraj" : 1,
+                "ntraj" : 50,
                 "maxtraj" : 3000,
                 "std_min": 0.001,
                 "gamma" : 0.99,
                 "alpha" : 0.0003,
                 "beta" : 0.0003,
-                "max_buffer_size" : 100000,
+                "max_buffer_size" : 10000,
                 "prob_rand_sample_training" : 0.99,
                 "tau" : 0.005,
-                "reward_scale" : 2
+                "reward_scale" : 2,
+                "actor_critic" : True,
+                "save" : False
             },
-            "num_iteration": 100000,
+            "num_iteration": 1000,
             "episode_len" : 3000
 
         },
@@ -128,7 +131,7 @@ configs = {
                 "maxtraj" : 400,
                 "save" : True
             },
-            "num_iteration": 30,
+            "num_iteration": 200,
         },
 
         "RL":{
@@ -144,9 +147,10 @@ configs = {
                 "prob_rand_sample_training" : 0.99,
                 "tau" : 0.005,
                 "reward_scale" : 2,
-                "save" : False
+                "save" : False,
+                "actor_critic" : True
             },
-            "num_iteration": 2000,
+            "num_iteration": 1000,
             "episode_len" : 3000
 
         },

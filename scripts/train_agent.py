@@ -31,6 +31,15 @@ def setup_agent(args, configs):
     ob_dim = env.observation_space.shape[0]
     ac_dim = env.action_space.n if discrete else env.action_space.shape[0]
 
+    # if args.exp_name == "imitation":
+    #     from agents.trial_agent import ImitationAgent as Agent    
+    # elif args.exp_name == "RL":
+    #     from agents.trial_agent import RLAgent as Agent
+    # elif args.exp_name == "imitation-RL":
+    #     from agents.trial_agent import ImitationSeededRL as Agent
+    # else:
+    #     raise ValueError(f"Invalid experiment name {args.exp_name}")
+
     if args.exp_name == "imitation":
         from agents.mujoco_agents import ImitationAgent as Agent    
     elif args.exp_name == "RL":
@@ -120,8 +129,8 @@ def train_agent(args, configs):
             )
     plt.plot(np.array(it_num), np.array(avg_rewards))
     plt.title("Evaluation Average Reward vs Iteration Number")
-    plt.show()
-    plt.savefig(args.exp_name + "_LearningCurve.png")
+    #plt.show()
+    plt.savefig(args.env_name + "_" +  args.exp_name + "_LearningCurve.png")
     return
 
 
@@ -149,7 +158,7 @@ def main():
     if not (os.path.exists(model_save_path)):
         os.makedirs(model_save_path)
 
-    print("ARGS ", args)
+    #print("ARGS ", args)
     logdir = (
         args.exp_name
         + "_"
