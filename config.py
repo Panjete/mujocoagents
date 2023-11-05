@@ -29,37 +29,39 @@ configs = {
                 "gamma" : 0.99,
                 "alpha" : 0.0003,
                 "beta" : 0.0003,
-                "max_buffer_size" : 100000,
+                "max_buffer_size" : 10000,
                 "prob_rand_sample_training" : 0.99,
                 "tau" : 0.005,
                 "reward_scale" : 2,
-                "actor_critic" : False
+                "actor_critic" : True,
+                "save" : False
             },
-            "num_iteration": 2000,
+            "num_iteration": 20000,
             "episode_len" : 3000
         },
         
         "imitation-RL":{
             #You can add or change the keys here
              "hyperparameters": {
-                "imitator_itr" : 200, ## 200 * 50 trajectories for imitator training
-                "critic_learn_itr": 200, ## 200 * 50 tuning actor
-                "actor_learn_itr" : 200, ## 500 * 50 trajs tuning critics to match actor values
+                "imitator_itr" : 100, ## 100 * 50 trajectories for imitator training
+                "critic_learn_itr": 100, ## 100 * 50 tuning actor
+                "actor_learn_itr" : 100, ## 100 * 50 trajs tuning critics to match actor values
                 "ntraj" : 10,
                 "maxtraj" : 1000,
-                "recalibrating_iters" : 5, ## 10 * 50 trajs each time the model recalibrates
-                "exploring_iters" : 50, ## 50 * 50 trajs each time the model explores 
-                "total_train_iterations" : 200, ## 100 iterations, x explore y recalibrate
+                "recalibrating_iters" : 1, ## 5 * 50 trajs each time the model recalibrates
+                "exploring_iters" : 1, ## 10 * 50 trajs each time the model explores 
+                "total_train_iterations" : 200000, ## 100 iterations, x explore y recalibrate
                 "std_min": 0.001,
                 "gamma" : 0.99,
                 "alpha" : 0.0001, ## Learn relatively slowly, "unlearns"
                 "beta" : 0.0001,
                 "tau" : 0.003,
                 "reward_scale" : 2,
-                "save" : False
+                "save" : False,
+                "actor_critic" : True,
 
             },
-            "num_iteration": 200,
+            "num_iteration": 200000,
 
             
         }
@@ -101,8 +103,7 @@ configs = {
                 "actor_critic" : True,
                 "save" : False
             },
-            "num_iteration": 1000,
-            "episode_len" : 3000
+            "num_iteration": 20000
 
         },
 
@@ -143,14 +144,14 @@ configs = {
                 "gamma" : 0.99,
                 "alpha" : 0.0003,
                 "beta" : 0.0003,
-                "max_buffer_size" : 100000,
+                "max_buffer_size" : 10000,
                 "prob_rand_sample_training" : 0.99,
                 "tau" : 0.005,
                 "reward_scale" : 2,
-                "save" : False,
-                "actor_critic" : True
+                "actor_critic" : True,
+                "save" : False
             },
-            "num_iteration": 1000,
+            "num_iteration": 10000,
             "episode_len" : 3000
 
         },

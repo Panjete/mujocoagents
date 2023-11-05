@@ -15,7 +15,6 @@ from policies.experts import load_expert_policy
 import torch.nn.functional as F
 
 
-
 class ImitationAgent(BaseAgent):
 
     def __init__(self, observation_dim:int, action_dim:int, args = None, discrete:bool = False, **hyperparameters):
@@ -110,6 +109,24 @@ class ImitationAgent(BaseAgent):
             torch.save(self.state_dict(), os.path.join(model_save_path, "model_"+ self.args.env_name + "_"+ self.args.exp_name+".pth"))
         return {'episode_loss': upd, 'trajectories': trajs, 'current_train_envsteps': self.hyperparameters["ntraj"]} 
 
+
+###
+###
+###
+# This is our implementation of the Soft Actor Critic proposed in : https://arxiv.org/abs/1801.01290
+# Materialisation of the concepts presented in the paper with the help of : https://www.youtube.com/watch?v=ioidsRlf79o
+# Kindly also find attached our implementation of the vanilla actor-critic & baseline approach at the end of the code
+# If the testing of these is required, kindly simply uncomment them and comment these 
+# Since the ImitationSeededRL implementation also depends on the implementation, we had to tailor it to SAC as well
+# The ImitationSeededRL implementation is purely our own, for both SAC and AC
+###
+###
+###
+
+
+# ''' <<<<<<<<<<<<<<<< uncomment this comment initiator to comment SAC, also for the closing block comment
+
+
 # For calculating goodness of State Action Pair
 class Critic(nn.Module):
     def __init__(self, observation_dim:int, action_dim:int, beta_critic, name):
@@ -117,7 +134,7 @@ class Critic(nn.Module):
         self.action_dim  = action_dim
         self.observation_dim = observation_dim
         self.name = name
-        self.lr = beta_critic
+        
 
         #initialize your model and optimizer and other variables you may need
         
@@ -125,9 +142,11 @@ class Critic(nn.Module):
         self.fc2 = nn.Linear(256 , 256)
         self.q_out = nn.Linear(256 , 1)
 
-        self.optimizer = optim.Adam(self.parameters(), lr = self.lr)
-        #self.device = torch.device('cuda:0' if torch.cuda_is_available() else 'cpu') ## May give an error
-        self.device = torch.device('cpu') ## May give an error
+        self.optimizer = optim.Adam(self.parameters(), lr = beta_critic)
+        if torch.cuda.is_available():
+            self.device = torch.device('cuda:0')
+        else:
+            self.device = torch.device('cpu')
         self.to(self.device)
 
     def forward(self, state, action):
@@ -154,8 +173,10 @@ class Value(nn.Module):
         self.v_out = nn.Linear(256 , 1)
 
         self.optimizer = optim.Adam(self.parameters(), lr = self.lr)
-        #self.device = torch.device('cuda:0' if torch.cuda_is_available() else 'cpu') ## May give an error
-        self.device = torch.device('cpu') ## May give an error
+        if torch.cuda.is_available():
+            self.device = torch.device('cuda:0')
+        else:
+            self.device = torch.device('cpu')
         self.to(self.device)
 
     def forward(self, state):
@@ -173,7 +194,6 @@ class Actor(nn.Module):
         super(Actor, self).__init__()
         self.observation_dim = observation_dim
         self.name = name
-        self.lr = alpha
         self.action_dims = action_dims
         self.noise_variance = 1e-4
 
@@ -183,9 +203,11 @@ class Actor(nn.Module):
         self.means = nn.Linear(256 , self.action_dims)
         self.variances = nn.Linear(256, self.action_dims)
 
-        self.optimizer = optim.Adam(self.parameters(), lr = self.lr)
-        #self.device = torch.device('cuda:0' if torch.cuda_is_available() else 'cpu') ## May give an error
-        self.device = torch.device('cpu') ## May give an error
+        self.optimizer = optim.Adam(self.parameters(), lr = alpha)
+        if torch.cuda.is_available():
+            self.device = torch.device('cuda:0')
+        else:
+            self.device = torch.device('cpu')
         self.to(self.device)
 
     def forward(self, observation):
@@ -195,232 +217,26 @@ class Actor(nn.Module):
         x = self.fc2(x)
         x = F.leaky_relu(x)
 
-        means = self.means(x)
-        variances = torch.clamp(self.variances(x), min = self.noise_variance, max = 1) 
+        means = self.means(x) ## Mean of the distribution
+        variances = torch.clamp(self.variances(x), min = self.noise_variance, max = 1) ## To ensure variances are positive, and bounded
         return means, variances
     
     def sample_normal(self, observation, r):
         means, variances = self.forward(observation)
         distbn = Normal(means, variances)
         if r:
-            actions = distbn.rsample()
+            actions = distbn.rsample() ## Introduces extra randomness -> Use at training time to expedite exploration
         else:
             actions = distbn.sample()
         
         action = torch.tanh(actions).to(self.device)
-        log_probs = distbn.log_prob(actions) - torch.log( 1- action.pow(2) + self.noise_variance)
+        log_probs = distbn.log_prob(actions) - torch.log( 1- action.pow(2) + self.noise_variance) ## Also incorporate Entropy of the actions
         log_probs = log_probs.sum(1, keepdim = True)
 
         return action, log_probs
-    
 
-
+#### SAC based 
 class RLAgent(BaseAgent):
-    def __init__(self, observation_dim:int, action_dim:int, args = None, discrete:bool = False, **hyperparameters ):
-        super().__init__()
-        self.hyperparameters = hyperparameters
-        self.action_dim  = action_dim
-        self.observation_dim = observation_dim
-        self.is_action_discrete = discrete
-        self.args = args
-       
-
-        self.model = nn.Sequential(
-                nn.LayerNorm(self.observation_dim),
-                nn.Linear(self.observation_dim, 4*self.observation_dim),
-                nn.LeakyReLU(),
-                nn.Linear(4*self.observation_dim, 4*self.action_dim),
-                nn.LayerNorm(4*self.action_dim),
-                nn.Linear(4*self.action_dim, 2*self.action_dim),
-                nn.Tanh()
-            )
-    
-        self.critic = nn.Sequential(
-            nn.LayerNorm(self.observation_dim),
-            nn.Linear(self.observation_dim, 4*self.action_dim),
-            nn.LeakyReLU(),
-            nn.Linear(4*self.action_dim, 2*self.action_dim),
-            nn.LeakyReLU(),
-            nn.Linear(2*self.action_dim, 1),
-        )
-    
-        self.loss_fn = nn.GaussianNLLLoss()
-        self.loss_critic = nn.MSELoss(reduction = 'sum')
-        self.optimizer = torch.optim.Adam(self.model.parameters())
-        self.optimizer_critic = torch.optim.Adam(self.critic.parameters())
-        self.sampling = False
-        self.actor_critic = self.hyperparameters["actor_critic"]
-        self.cur_max_reward = 0
-
-    def forward(self, observation: torch.FloatTensor):
-        x = self.model(observation)
-        a_m = x[:, :self.action_dim]
-        a_v = torch.clamp(torch.abs(x[:,self.action_dim:]), min = self.hyperparameters["std_min"])
-        ms = torch.distributions.Normal(a_m, a_v)
-        action = ms.sample()
-        return action
-
-
-    def distbn(self, observation: torch.FloatTensor):
-        x = self.model(observation)
-        a_m = x[:self.action_dim]
-        a_v = torch.clamp(torch.abs(x[self.action_dim:]), min = self.hyperparameters["std_min"])
-        ms = torch.distributions.Normal(a_m, a_v)
-        action = ms.sample()
-        log_action = ms.log_prob(action)
-        return action, log_action, a_m, a_v
-
-
-    @torch.no_grad()
-    def get_action(self, observation: torch.FloatTensor):
-        #*********YOUR CODE HERE******************
-        x = self.model(observation)
-        a_m = x[:,:self.action_dim]
-        a_v = torch.clamp(torch.abs(x[:,self.action_dim:]), min = self.hyperparameters["std_min"])
-        ms = torch.distributions.Normal(a_m, a_v)
-        action = ms.sample()
-        r = random.random()
-        if r > self.hyperparameters["prob_rand_sample_training"]: ## Happens with v little prob 
-            action = 2 * torch.rand((1, self.action_dim)) - 1
-        return action
-
-    def update_baseline(self, trajs):
-        self.train()
-        avg_score = 0.0
-        n = len(trajs)
-        losses = []
-        for traj in trajs:
-            ## Step 1: getting trajectories
-            score = 0
-            li = [] ## Houses log(pi_theta(a_it|s_it)) for all t in this traj i
-            rewards = []
-            traj_len = len(traj["observation"])
-            for step in range(len(traj["observation"])):
-                #select action, clip action to be [-1, 1]
-                state = torch.from_numpy(traj["observation"][step])
-                action_suggested, la, a_m, a_v = self.distbn(state) #clip action? action = min(max(-1, action), 1)
-                actual_action = torch.from_numpy(traj["action"][step])
-                #l1 = torch.norm(la)
-                l1 = self.loss_fn(actual_action, a_m, a_v)
-                reward = traj['reward'][step] + 0.2 * (((traj_len - step) ** 2)) # Highly promoting higher epsiode lengths
-                score += reward * (self.hyperparameters["gamma"]**step) #track episode score
-                li.append(l1)
-                rewards.append(reward)
-
-            avg_reward = sum(rewards)/len(rewards)
-            for step in range(len(li)):
-                ## Step 3 : evaluating A_pi
-                reward_this_time = traj["reward"][step]
-                A_pi_s_i = reward_this_time-avg_reward
-                ## Step 4 : log(pi(a_it, s_it)) * A_pi_s_i
-                li[step] = li[step] * A_pi_s_i
-                #li[step] = acc_rewards[step] * li[step] ## Without baseline, log(pi(a_it, s_it)) * sum(r(s_t', a_t')) for t' = t to T
-            
-            losses.append(sum(li))
-
-        loss = self.hyperparameters["alpha"] * (1/n) * sum(losses)    
-        #Step 5 : Backpropagation on theta
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-        avg_score += score
-
-        return avg_score/n
-    
-    def update_ac(self, trajs):
-        self.train()
-        avg_score = 0.0
-        n = len(trajs)
-        losses = []
-        for traj in trajs:
-            ## Step 1: getting trajectories
-            score = 0
-            li = [] ## Houses log(pi_theta(a_it|s_it)) for all t in this traj i
-            rewards = []
-            traj_len = len(traj["observation"])
-            for step in range(len(traj["observation"])):
-                #select action, clip action to be [-1, 1]
-                state = torch.from_numpy(traj["observation"][step])
-                action_suggested, la, a_m, a_v = self.distbn(state) #clip action? action = min(max(-1, action), 1)
-                actual_action = torch.from_numpy(traj["action"][step])
-                #l1 = torch.norm(la)
-                l1 = self.loss_fn(actual_action, a_m, a_v)
-                reward = traj['reward'][step] + 0.2 * (((traj_len - step) ** 2)) # Highly promoting higher epsiode lengths
-                score += reward * (self.hyperparameters["gamma"]**step) #track episode score
-                li.append(l1)
-                rewards.append(reward)
-
-            ## This loop does gives the "rewards to go" from every (s, a) in this trajectory
-            acc_rewards = []
-            pr = 0.0
-            for r in rewards[::-1]:
-                next_r = r + self.hyperparameters["gamma"]*pr
-                acc_rewards.append(next_r)
-                pr = next_r
-            acc_rewards.reverse()
-            baseline_reward = sum(acc_rewards)/len(acc_rewards)
-            
-            for step in range(len(acc_rewards)):
-                ## Step 2. Fit V_phi_pi to sampled new rewards
-                trj_reward_discounted = torch.Tensor([acc_rewards[step]]).to(torch.float64)
-                state = torch.from_numpy(traj["observation"][step])
-                estimated_reward = self.critic(state).to(torch.float64)
-                critic_loss = self.loss_critic(trj_reward_discounted, estimated_reward).to(torch.float64)
-                self.optimizer_critic.zero_grad()
-                critic_loss.backward()
-                self.optimizer_critic.step()
-
-            for step in range(len(li)):
-                ## Step 3 : evaluating A_pi
-                s_prime = torch.from_numpy(traj["next_observation"][step])
-                V_s_prime = self.critic(s_prime).item()
-                state = torch.from_numpy(traj["observation"][step])
-                V_state = self.critic(state).item()
-                reward_this_time = traj["reward"][step]
-                A_pi_s_i = reward_this_time + (self.hyperparameters["gamma"]*V_s_prime) - V_state
-                ## Step 4 : log(pi(a_it, s_it)) * A_pi_s_i
-                li[step] = li[step] * A_pi_s_i
-                #li[step] = acc_rewards[step] * li[step] ## Without baseline, log(pi(a_it, s_it)) * sum(r(s_t', a_t')) for t' = t to T
-
-            losses.append(sum(li))   
-
-        loss = self.hyperparameters["alpha"] * (1/n) * sum(losses)    
-        #Step 5 : Backpropagation on theta
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-        avg_score += score
-
-        return avg_score/n
-
-
-    def train_iteration(self, env, envsteps_so_far, render=False, itr_num=None, **kwargs):
-        #*********YOUR CODE HERE******************
-        self.train()
-        self.sampling = True
-        trajs = utils.sample_n_trajectories(env, self, self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], False)
-        self.sampling = False
-        self.hyperparameters["alpha"] = 1/(1 + envsteps_so_far/1000)
-        if self.actor_critic:
-            upd = self.update_ac(trajs)
-        else:
-            upd = self.update_baseline(trajs)
-
-        if itr_num%10 == 0 and  upd > self.cur_max_reward:
-            print("saving Model with score : ",  upd)
-            self.cur_max_reward = upd
-            model_save_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../best_models")
-            torch.save(self.state_dict(), os.path.join(model_save_path, "model_"+ self.args.env_name + "_"+ self.args.exp_name+"_ac.pth"))
-
-        return {'episode_loss': upd, 'trajectories': trajs, 'current_train_envsteps': self.hyperparameters["ntraj"]} #you can return more metadata if you want to
-'''
-
-class RLAgent(BaseAgent):
-
-    
-    # Please implement an policy gradient agent. Read scripts/train_agent.py to see how the class is used. 
-    # Note: Please read the note (1), (2), (3) in ImitationAgent class. 
-    
 
     def __init__(self, observation_dim:int, action_dim:int, args = None, discrete:bool = False, **hyperparameters):
         super().__init__()
@@ -436,7 +252,7 @@ class RLAgent(BaseAgent):
         self.beta = self.hyperparameters["beta"]     ## Learning rates of the value estimators and critics
         self.gamma = self.hyperparameters["gamma"]    ## Discounting Rate
         self.tau = self.hyperparameters["tau"]        ## Soft-copy deciding parameter
-        self.batch_size = self.hyperparameters["ntraj"]   ## Batch Size, though I've reduced code to a single trajectory anyways
+        self.batch_size = self.hyperparameters["ntraj"]   ## Batch Size, though code we do a single trajectory anyways
         self.reward_scale = self.hyperparameters["reward_scale"]    ## For determining what weightage to give to reward and predicted reward
 
         # Initialising predictors and quality estimators
@@ -444,17 +260,19 @@ class RLAgent(BaseAgent):
         self.actor = Actor(self.alpha, self.observation_dim, self.action_dim, "Actor")   
         self.critic1 = Critic(self.observation_dim, self.action_dim, self.beta, "Critic1")
         self.critic2 = Critic(self.observation_dim, self.action_dim, self.beta, "Critic2")
+
         self.value =  Value(self.observation_dim, self.beta, "Value")
-        self.target_value =  Value(self.observation_dim, self.beta, "target_value")
+        self.target_value =  Value(self.observation_dim, self.beta, "target_value") ## one for updates, one for soft transition
 
         self.cur_max_reward = 0.0
-        self.update_network_parameters(tau = 1)
+        self.update_network_parameters(tau = 1) ##initialising value's parameters to be the same as target_value
        
+        
     def forward(self, observation: torch.FloatTensor):
-        #*********YOUR CODE HERE******************
         actions, _ = self.actor.sample_normal(observation, r = False)
         return actions
 
+    # For soft transition of the model's parameter
     def update_network_parameters(self, tau = None):
         if tau is None:
             tau = self.tau
@@ -471,8 +289,7 @@ class RLAgent(BaseAgent):
         self.target_value.load_state_dict(vs_dict)
 
     ## Filhaal learns one trajectory at a time, maybe try to implement a batch one?
-    def learn(self, trajs):
-        # ## May need to do np.append instead of list comprehension
+    def learn(self, trajs, env):
         self.train()
         rewards_earned = 0.0
         for traj in trajs:
@@ -526,7 +343,11 @@ class RLAgent(BaseAgent):
 
             rewards_earned += float(reward.sum())
         #print("REWARDS EARNED IN THIS LEARNING CYCLE =", rewards_earned)
-        return  rewards_earned/self.batch_size
+        max_ep_len = env.spec.max_episode_steps
+        eval_trajs, _ = utils.sample_trajectories(env, self.get_action, 15*max_ep_len, max_ep_len)
+        eval_returns = [eval_traj["reward"].sum() for eval_traj in eval_trajs]
+        upd = np.mean(eval_returns)
+        return  upd
         
         
     @torch.no_grad()
@@ -615,24 +436,18 @@ class RLAgent(BaseAgent):
         #*********YOUR CODE HERE******************
         self.train()
         trajs = utils.sample_n_trajectories(env, self, self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], False)
-        cur_reward = self.learn(trajs)
-        if envsteps_so_far%1000 == 0 and cur_reward > self.cur_max_reward:
+        cur_reward = self.learn(trajs, env)
+        print("Models reward: ", cur_reward)
+        if cur_reward > self.cur_max_reward:
+            print("Saving model with score", cur_reward)
             self.cur_max_reward = cur_reward
             model_save_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../best_models")
             torch.save(self.state_dict(), os.path.join(model_save_path, "model_"+ self.args.env_name + "_"+ self.args.exp_name+".pth"))
         return {'episode_loss': cur_reward, 'trajectories': trajs, 'current_train_envsteps': self.hyperparameters["ntraj"]} #you can return more metadata if you want to
 
-'''
-
-
+    
+### SAC based
 class ImitationSeededRL(ImitationAgent, RLAgent):
-    '''
-    Implement a policy gradient agent with imitation learning initialization.
-    You can use the ImitationAgent and RLAgent classes as parent classes.
-
-    Note: We will evaluate the performance on Ant domain only. 
-    If everything goes well, you might see an ant running and jumping as seen in lecture slides.
-    '''
     
     def __init__(self, observation_dim:int, action_dim:int, args = None, discrete:bool = False, **hyperparameters):
         RLAgent.__init__(self, observation_dim=observation_dim, action_dim=action_dim, args=args, discrete=discrete, **hyperparameters)
@@ -672,7 +487,7 @@ class ImitationSeededRL(ImitationAgent, RLAgent):
             print("RL Critics trained and Initialised successfully")
             self.imitator_trained = True
             
-        fraction_done = (itr_num/self.hyperparameters["total_train_iterations"])**(0.5)
+        fraction_done = (1+ itr_num)/(itr_num+10)
         r = random.random()
         if fraction_done < r:
             ## Happens less and less frequently as time passes
@@ -687,12 +502,13 @@ class ImitationSeededRL(ImitationAgent, RLAgent):
             print("Seeded Model Exploring for itr = ", itr_num)
             for _ in range(self.hyperparameters["exploring_iters"]):
                 trajs = utils.sample_n_trajectories(env, self, self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], False)
-                self.rlagent.learn(trajs)
+                self.rlagent.learn(trajs, env)
 
-        trajs = utils.sample_n_trajectories(env, self, self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], False)
-        rewards = [sum(traj["reward"]) for traj in trajs]
-        cur_reward = sum(rewards)/len(rewards)
-        print("Reward in this iteration of training = ", cur_reward)
+        max_ep_len = env.spec.max_episode_steps
+        trajs, _ = utils.sample_trajectories(env, self.get_action, 15*max_ep_len, max_ep_len)
+        eval_returns = [eval_traj["reward"].sum() for eval_traj in trajs]
+        cur_reward = np.mean(eval_returns)
+        print("Reward in this iteration of training ImitationSeededRL = ", cur_reward)
         if envsteps_so_far%100 == 0 and cur_reward > self.cur_max_reward:
             print("Saving model with avg score = ", cur_reward)
             self.cur_max_reward = cur_reward
@@ -701,172 +517,340 @@ class ImitationSeededRL(ImitationAgent, RLAgent):
         trajs = utils.sample_n_trajectories(env, self, self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], False)
         return {'episode_loss': 0.0, 'trajectories': trajs, 'current_train_envsteps': self.hyperparameters["ntraj"]} #you can return more metadata if you want to
 
-
-## Self trained Actor critic
-# class RLAgent(BaseAgent):
-
-#     '''
-#     Please implement an policy gradient agent. Read scripts/train_agent.py to see how the class is used. 
-    
-    
-#     Note: Please read the note (1), (2), (3) in ImitationAgent class. 
-#     '''
-
-#     def __init__(self, observation_dim:int, action_dim:int, args = None, discrete:bool = False, **hyperparameters ):
-#         super().__init__()
-#         self.hyperparameters = hyperparameters
-#         self.action_dim  = action_dim
-#         self.observation_dim = observation_dim
-#         self.is_action_discrete = discrete
-#         self.args = args
-#         #initialize your model and optimizer and other variables you may need
-#         self.model = nn.Sequential(
-#                 nn.LayerNorm(self.observation_dim),
-#                 nn.Linear(self.observation_dim, 4*self.observation_dim),
-#                 nn.LeakyReLU(),
-#                 nn.Linear(4*self.observation_dim, 4*self.action_dim),
-#                 nn.LayerNorm(4*self.action_dim),
-#                 nn.Linear(4*self.action_dim, 2*self.action_dim),
-#                 nn.Tanh()
-#             )
         
-#         self.critic = nn.Sequential(
-#             nn.LayerNorm(self.observation_dim),
-#             nn.Linear(self.observation_dim, 4*self.action_dim),
-#             nn.LeakyReLU(),
-#             nn.Linear(4*self.action_dim, 2*self.action_dim),
-#             nn.LeakyReLU(),
-#             nn.Linear(2*self.action_dim, 1),
-#         )
+
+# ''' <<<<<<<<<<<<<<<< uncomment this comment to comment SAC
+
+
+
+
+
+# Uncomment below block to run AC RL and AC-ImitationSeeded RL        
+
+'''
+class RLAgent(BaseAgent):
+    def __init__(self, observation_dim:int, action_dim:int, args = None, discrete:bool = False, **hyperparameters ):
+        super().__init__()
+        self.hyperparameters = hyperparameters
+        self.action_dim  = action_dim
+        self.observation_dim = observation_dim
+        self.is_action_discrete = discrete
+        self.args = args
+        self.replay_buffer = ReplayBuffer(50000)
        
-#         self.loss_fn = nn.GaussianNLLLoss()
-#         self.loss_critic = nn.MSELoss(reduction = 'sum')
-#         self.optimizer = torch.optim.Adam(self.model.parameters())
-#         self.optimizer_critic = torch.optim.Adam(self.critic.parameters())
-#         self.sampling = False
+        self.model = nn.Sequential(
+                nn.LayerNorm(self.observation_dim),
+                nn.Linear(self.observation_dim, 4*self.observation_dim),
+                nn.LeakyReLU(),
+                nn.Linear(4*self.observation_dim, 4*self.action_dim),
+                nn.LayerNorm(4*self.action_dim),
+                nn.Linear(4*self.action_dim, 2*self.action_dim),
+                nn.Tanh()
+            )
     
-#     def forward(self, observation: torch.FloatTensor):
-#         #*********YOUR CODE HERE******************
-#         x = self.model(observation)
-#         a_m = x[:, :self.action_dim]
-#         a_v = torch.clamp(torch.abs(x[:,self.action_dim:]), min = self.hyperparameters["std_min"])
-#         ms = torch.distributions.Normal(a_m, a_v)
-#         action = ms.sample()
-#         return action
+        self.critic = nn.Sequential(
+            nn.LayerNorm(self.observation_dim),
+            nn.Linear(self.observation_dim, 4*self.action_dim),
+            nn.LeakyReLU(),
+            nn.Linear(4*self.action_dim, 2*self.action_dim),
+            nn.LeakyReLU(),
+            nn.Linear(2*self.action_dim, 1),
+        )
     
-    
-#     def distbn(self, observation: torch.FloatTensor):
-#         x = self.model(observation)
-#         a_m = x[:self.action_dim]
-#         a_v = torch.clamp(torch.abs(x[self.action_dim:]), min = self.hyperparameters["std_min"])
-#         ms = torch.distributions.Normal(a_m, a_v)
-#         action = ms.sample()
-#         log_action = ms.log_prob(action)
-#         return action, log_action, a_m, a_v
+        self.loss_fn = nn.GaussianNLLLoss() ## Computes the Negative Log Likelihood - something we'd like to minimise, just like a loss!
+        self.loss_critic = nn.MSELoss(reduction = 'sum')
+        self.optimizer = torch.optim.Adam(self.model.parameters())
+        self.optimizer_critic = torch.optim.Adam(self.critic.parameters())
+        self.sampling = False
+        self.actor_critic = self.hyperparameters["actor_critic"]
+        self.cur_max_reward = 0.0
+        if torch.cuda.is_available():
+            self.device = torch.device('cuda:0')
+        else:
+            self.device = torch.device('cpu')
+        self.to(self.device)
+
+    def forward(self, observation: torch.FloatTensor):
+        x = self.model(observation)
+        a_m = x[:, :self.action_dim]
+        a_v = torch.clamp(torch.abs(x[:,self.action_dim:]), min = self.hyperparameters["std_min"])
+        ms = torch.distributions.Normal(a_m, a_v)
+        action = ms.sample()
+        return action
 
 
-#     @torch.no_grad()
-#     def get_action(self, observation: torch.FloatTensor):
-#         #*********YOUR CODE HERE******************
-#         x = self.model(observation)
-#         a_m = x[:,:self.action_dim]
-#         a_v = torch.clamp(torch.abs(x[:,self.action_dim:]), min = self.hyperparameters["std_min"])
-#         ms = torch.distributions.Normal(a_m, a_v)
-#         action = ms.sample()
-#         r = random.random()
-#         if r > self.hyperparameters["prob_rand_sample_training"]: ## Happens with v little prob 
-#             action = 2 * torch.rand((1, self.action_dim)) - 1
-#         return action
+    def distbn(self, observation: torch.FloatTensor):
+        x = self.model(observation)
+        a_m = x[:self.action_dim]
+        a_v = torch.clamp(torch.abs(x[self.action_dim:]), min = self.hyperparameters["std_min"])
+        ms = torch.distributions.Normal(a_m, a_v)
+        action = ms.sample()
+        log_action = ms.log_prob(action)
+        return action, log_action, a_m, a_v
 
-    
-#     '''def update(self, observations, actions, advantage, q_values = None):
-#         #*********YOUR CODE HERE******************
-#         loss = self.policy_update(observations, actions, advantage)
-#         if self.hyperparameters['critic']:
-#                 critic_loss = self.critic_update(observations, q_values)
-#                 loss += critic_loss
-#         return loss
+    @torch.no_grad()
+    def get_action(self, observation: torch.FloatTensor):
+        #*********YOUR CODE HERE******************
+        x = self.model(observation)
+        a_m = x[:,:self.action_dim]
+        a_v = torch.clamp(torch.abs(x[:,self.action_dim:]), min = self.hyperparameters["std_min"])
+        ms = torch.distributions.Normal(a_m, a_v)
+        action = ms.sample()
+        r = random.random()
+        if self.sampling and r > self.hyperparameters["prob_rand_sample_training"]: ## Happens with v little prob 
+            action = 2 * torch.rand((1, self.action_dim)) - 1
+        return action
 
-#         return'''
-    
-#     def update(self, trajs):
-#         avg_score = 0.0
-#         n = len(trajs)
-#         losses = []
-#         for traj in trajs:
-#             ## Step 1: getting trajectories
-#             score = 0
-#             li = [] ## Houses log(pi_theta(a_it|s_it)) for all t in this traj i
-#             rewards = []
-#             traj_len = len(traj["observation"])
-#             for step in range(len(traj["observation"])):
-#                 #select action, clip action to be [-1, 1]
-#                 state = torch.from_numpy(traj["observation"][step])
-#                 action_suggested, la, a_m, a_v = self.distbn(state) #clip action? action = min(max(-1, action), 1)
-#                 actual_action = torch.from_numpy(traj["action"][step])
-#                 #l1 = torch.norm(la)
-#                 l1 = self.loss_fn(actual_action, a_m, a_v)
-#                 reward = traj['reward'][step] + 0.2 * (((traj_len - step) ** 2) + (step **2)) # Highly promoting higher epsiode lengths
-#                 score += reward * (self.hyperparameters["gamma"]**step) #track episode score
-#                 li.append(l1)
-#                 rewards.append(reward)
+    def update_baseline(self, trajs):
+        self.train()
+        avg_score = 0.0
+        n = len(trajs)
+        losses = []
+        for traj in trajs:
+            ## Step 1: getting trajectories
+            score = 0
+            li = [] ## Houses log(pi_theta(a_it|s_it)) for all t in this traj i
+            rewards = []
+            traj_len = len(traj["observation"])
+            for step in range(len(traj["observation"])):
+                #select action, clip action to be [-1, 1]
+                state = torch.from_numpy(traj["observation"][step])
+                action_suggested, la, a_m, a_v = self.distbn(state) #clip action? action = min(max(-1, action), 1)
+                actual_action = torch.from_numpy(traj["action"][step])
+                #l1 = torch.norm(la)
+                l1 = self.loss_fn(actual_action, a_m, a_v)
+                reward = traj['reward'][step] + 0.2 * (((traj_len - step) ** 2)) # Highly promoting higher epsiode lengths
+                score += reward * (self.hyperparameters["gamma"]**step) #track episode score
+                li.append(l1)
+                rewards.append(reward)
 
-#             ## This loop does gives the "rewards to go" from every (s, a) in this trajectory
-#             acc_rewards = []
-#             pr = 0.0
-#             for r in rewards[::-1]:
-#                 next_r = r + self.hyperparameters["gamma"]*pr
-#                 acc_rewards.append(next_r)
-#                 pr = next_r
-#             acc_rewards.reverse()
+            avg_reward = sum(rewards)/len(rewards)
+            for step in range(len(li)):
+                ## Step 3 : evaluating A_pi
+                reward_this_time = traj["reward"][step]
+                A_pi_s_i = reward_this_time-avg_reward
+                ## Step 4 : log(pi(a_it, s_it)) * A_pi_s_i
+                li[step] = li[step] * A_pi_s_i
+                #li[step] = acc_rewards[step] * li[step] ## Without baseline, log(pi(a_it, s_it)) * sum(r(s_t', a_t')) for t' = t to T
             
-                
-#             for step in range(len(acc_rewards)):
-#                 ## Step 2. Fit V_phi_pi to sampled new rewards
-#                 trj_reward_discounted = torch.Tensor([acc_rewards[step]]).to(torch.float64)
-#                 state = torch.from_numpy(traj["observation"][step])
-#                 estimated_reward = self.critic(state).to(torch.float64)
-#                 #print("estimated_reward by critic_network, shape =", estimated_reward, estimated_reward.shape)
-#                 #print("reward from trajectory, discounted, shape =", trj_reward_discounted, trj_reward_discounted.shape)
-#                 critic_loss = self.loss_critic(trj_reward_discounted, estimated_reward).to(torch.float64)
-#                 self.optimizer_critic.zero_grad()
-#                 critic_loss.backward()
-#                 self.optimizer_critic.step()
+            losses.append(sum(li))
 
-#             #print("Next Obsv Size vs Obs size",len(traj["next_observation"]), len(traj["observation"]) )
-#             for step in range(len(li)):
-#                 ## Step 3 : evaluating A_pi
-#                 s_prime = torch.from_numpy(traj["next_observation"][step])
-#                 V_s_prime = self.critic(s_prime).item()
-#                 state = torch.from_numpy(traj["observation"][step])
-#                 V_state = self.critic(state).item()
-#                 reward_this_time = traj["reward"][step]
-#                 A_pi_s_i = reward_this_time + (self.hyperparameters["gamma"]*V_s_prime) - V_state
-#                 ## Step 4 : log(pi(a_it, s_it)) * A_pi_s_i
-#                 li[step] = li[step] * A_pi_s_i
-#                 #li[step] = acc_rewards[step] * li[step] ## Without baseline, log(pi(a_it, s_it)) * sum(r(s_t', a_t')) for t' = t to T
+        loss = self.hyperparameters["alpha"] * (1/n) * sum(losses)    
+        #Step 5 : Backpropagation on theta
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        avg_score += score
 
-#             losses.append(sum(li))   
-
-#         loss = self.hyperparameters["alpha"] * (1/n) * sum(losses)    
-#         #Step 5 : Backpropagation on theta
-#         self.optimizer.zero_grad()
-#         loss.backward()
-#         self.optimizer.step()
-#         avg_score += score
-
-#         return avg_score/n
+        return avg_score/n
     
+    def update_ac(self, trajs, env):
+        self.train()
+        if len(self.replay_buffer.paths) > 100:
+            for _ in range(20):
+                rand_int = random.randint(0, len(self.replay_buffer.paths)-1)
+                replay_traj = self.replay_buffer.paths[rand_int]
+                trajs.append(replay_traj)
+        n = len(trajs)
+        losses = []
+        for traj in trajs:
+            ## Step 1: getting trajectories
+            li = [] ## Houses log(pi_theta(a_it|s_it)) for all t in this traj i
+            rewards = []
+            traj_len = len(traj["observation"])
+            for step in range(len(traj["observation"])):
+                #select action, clip action to be [-1, 1]
+                state = torch.from_numpy(traj["observation"][step])
+                action_suggested, la, a_m, a_v = self.distbn(state) #clip action? action = min(max(-1, action), 1)
+                actual_action = torch.from_numpy(traj["action"][step])
+                #l1 = torch.norm(la)
+                l1 = self.loss_fn(actual_action, a_m, a_v)
+                reward = traj['reward'][step] + 0.2 * (((traj_len - step) ** 2)) # Highly promoting higher epsiode lengths
+                li.append(l1)
+                rewards.append(reward)
 
-#     def train_iteration(self, env, envsteps_so_far, render=False, itr_num=None, **kwargs):
-#         #*********YOUR CODE HERE******************
-#         self.train()
-#         self.sampling = True
-#         trajs = utils.sample_n_trajectories(env, self, self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], False)
-#         self.sampling = False
-#         self.hyperparameters["alpha"] = 1/(1 + envsteps_so_far/1000)
-#         upd = self.update(trajs)
+            ## This loop does gives the "rewards to go" from every (s, a) in this trajectory
+            acc_rewards = []
+            pr = 0.0
+            for r in rewards[::-1]:
+                next_r = r + self.hyperparameters["gamma"]*pr
+                acc_rewards.append(next_r)
+                pr = next_r
+            acc_rewards.reverse()
+            
+            for step in range(len(acc_rewards)):
+                ## Step 2. Fit V_phi_pi to sampled new rewards
+                trj_reward_discounted = torch.Tensor([acc_rewards[step]]).to(torch.float64)
+                state = torch.from_numpy(traj["observation"][step])
+                estimated_reward = self.critic(state).to(torch.float64)
+                critic_loss = self.loss_critic(trj_reward_discounted, estimated_reward).to(torch.float64)       
+                self.optimizer_critic.zero_grad()
+                critic_loss.backward()
+                self.optimizer_critic.step()
 
-#         return {'episode_loss': upd, 'trajectories': trajs, 'current_train_envsteps': self.hyperparameters["ntraj"]} #you can return more metadata if you want to
+            for step in range(len(li)):
+                ## Step 3 : evaluating A_pi
+                s_prime = torch.from_numpy(traj["next_observation"][step])
+                V_s_prime = self.critic(s_prime).item()
+                state = torch.from_numpy(traj["observation"][step])
+                V_state = self.critic(state).item()
+                reward_this_time = traj["reward"][step]
+                A_pi_s_i = reward_this_time + (self.hyperparameters["gamma"]*V_s_prime) - V_state
+                ## Step 4 : log(pi(a_it, s_it)) * A_pi_s_i
+                li[step] = li[step] * A_pi_s_i
+                #li[step] = acc_rewards[step] * li[step] ## Without baseline, log(pi(a_it, s_it)) * sum(r(s_t', a_t')) for t' = t to T
+
+            losses.append(sum(li))   
+
+        loss = self.hyperparameters["alpha"] * (1/n) * sum(losses)    
+        #Step 5 : Backpropagation on theta
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        max_ep_len = env.spec.max_episode_steps
+        eval_trajs, _ = utils.sample_trajectories(env, self.get_action, 15*max_ep_len, max_ep_len)
+        self.replay_buffer.add_rollouts(eval_trajs)
+        eval_returns = [eval_traj["reward"].sum() for eval_traj in eval_trajs]
+        upd = np.mean(eval_returns)
+        return upd
+
+    def learn_actor(self, env, itr_nums, ntraj, maxtraj, imitator:ImitationAgent):
+        print("Training Actor")
+        for _ in range(itr_nums):
+            trajs = utils.sample_n_trajectories(env, self, ntraj, maxtraj, False)
+            for traj in trajs:
+                state = torch.tensor(traj["observation"], dtype = torch.float, requires_grad=True).to(self.device) ## s - the current states being analysed
+                action = torch.tensor(traj["action"], dtype = torch.float, requires_grad=True).to(self.device) ## action a actually taken in the trajectory
+                #actions_to_replicate = torch.tensor(imitator.model.forward(state), dtype = torch.float, requires_grad=True)
+                actions_to_replicate = imitator.model.forward(state)
+                #print("Actions DIM : ", action.size(), " reqd action DIM : ", actions_to_replicate.size())
+                actor_loss = F.mse_loss(action, actions_to_replicate, reduction="mean")
+                self.optimizer.zero_grad()
+                actor_loss.backward()
+                self.optimizer.step()
+        return
+    
+    def learn_critics(self, env, itr_nums, ntraj, maxtraj):
+        self.train()
+        print("Training Critic")
+        for _ in range(itr_nums):
+            trajs = utils.sample_n_trajectories(env, self, ntraj, maxtraj, False)
+            for traj in trajs:
+                rewards = traj["reward"]
+                state = torch.tensor(traj["observation"], dtype = torch.float).to(self.device) ## s - the current states being analyse
+        
+                acc_rewards = []
+                pr = 0.0
+                for r in rewards[::-1]:
+                    next_r = r + self.hyperparameters["gamma"]*pr
+                    acc_rewards.append(next_r)
+                    pr = next_r
+                acc_rewards.reverse()
+
+                acc_rewards = torch.tensor(acc_rewards, dtype = torch.float).to(self.device) ## Rewards earned in this trajectory
+
+                self.optimizer_critic.zero_grad()
+                q_hat = acc_rewards
+                q_op = self.critic.forward(state).view(-1) ## How good is the suggested state pair
+                critic_loss = F.mse_loss(q_op, q_hat)
+                critic_loss.backward()
+                self.optimizer_critic.step()
+        return
+
+    def train_iteration(self, env, envsteps_so_far, render=False, itr_num=None, **kwargs):
+        self.train()
+        self.sampling = True
+        trajs = utils.sample_n_trajectories(env, self, self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], False)
+        self.sampling = False
+        self.hyperparameters["alpha"] = 1# np.sqrt(1/(1 + itr_num/100))
+        if self.actor_critic:
+            upd = self.update_ac(trajs, env)
+        else:
+            upd = self.update_baseline(trajs)
+
+        print("Model's score : ",  upd)
+        if  upd > self.cur_max_reward:
+            print("saving Model with score : ",  upd)
+            self.cur_max_reward = upd
+            model_save_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../best_models")
+            torch.save(self.state_dict(), os.path.join(model_save_path, "model_"+ self.args.env_name + "_"+ self.args.exp_name+".pth"))
+
+        return {'episode_loss': upd, 'trajectories': trajs, 'current_train_envsteps': self.hyperparameters["ntraj"]} #you can return more metadata if you want to
 
 
+class ImitationSeededRL(ImitationAgent, RLAgent):
+    
+    def __init__(self, observation_dim:int, action_dim:int, args = None, discrete:bool = False, **hyperparameters):
+        RLAgent.__init__(self, observation_dim=observation_dim, action_dim=action_dim, args=args, discrete=discrete, **hyperparameters)
+        self.hyperparameters = hyperparameters
+        self.action_dim  = action_dim
+        self.observation_dim = observation_dim
+        self.is_action_discrete = discrete
+        self.args = args
+        self.imitator = ImitationAgent(observation_dim, action_dim, args, discrete, **hyperparameters)
+        self.imitator_trained = False
+
+        self.rlagent = RLAgent(observation_dim, action_dim, args, discrete, **hyperparameters)
+        self.cur_max_reward = 0.0
+
+    def forward(self, observation: torch.FloatTensor):
+        actions = self.rlagent.get_action(observation)
+        return actions
+    
+    @torch.no_grad()
+    def get_action(self, observation: torch.FloatTensor):
+        actions = self.rlagent.get_action(observation)
+        return actions
+
+    def train_iteration(self, env, envsteps_so_far, render=False, itr_num=None, **kwargs):
+        self.train()
+        if self.imitator_trained == False:
+            ## One time thing only
+            total_envsteps = 0
+            for itr in range(self.hyperparameters["imitator_itr"]):
+                print(f"\n********** Imitation Phase Iteration {itr} ************")
+                train_info = self.imitator.train_iteration(env, envsteps_so_far = total_envsteps, render=False, itr_num = itr)
+                total_envsteps += train_info['current_train_envsteps']
+            print("Imitator Initialised and Trained successfully")
+            self.rlagent.learn_actor(env, self.hyperparameters["actor_learn_itr"], self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], self.imitator)
+            print("RL Actor trained and Initialised successfully")
+            self.rlagent.learn_critics(env, self.hyperparameters["critic_learn_itr"], self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"])
+            print("RL Critics trained and Initialised successfully")
+            self.imitator_trained = True
+            
+        fraction_done = (1+itr_num)/(10+itr_num) ## approaches 1 very quickly -> recalibration less and less
+        r = random.random()
+        if fraction_done < r:
+            ## Happens less and less frequently as time passes
+            ## train Imitator
+            print("Seeded Model Re-Calibrating with Imitation Agent for itr = ", itr_num)
+            self.imitator.train_iteration(env, envsteps_so_far = 10000)
+            self.rlagent.learn_actor(env, self.hyperparameters["recalibrating_iters"], self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], self.imitator)
+            self.rlagent.learn_critics(env,self.hyperparameters["recalibrating_iters"], self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"])
+        else:
+            ## Happens more and more frequently as time passes
+            ## ALlow model to explore
+            print("Seeded Model Exploring for itr = ", itr_num)
+            for _ in range(self.hyperparameters["exploring_iters"]):
+                trajs = utils.sample_n_trajectories(env, self, self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], False)
+                self.rlagent.update_ac(trajs, env)
+
+
+        max_ep_len = env.spec.max_episode_steps
+        eval_trajs, _ = utils.sample_trajectories(env, self.get_action, 15*max_ep_len, max_ep_len)
+        self.replay_buffer.add_rollouts(eval_trajs)
+        eval_returns = [eval_traj["reward"].sum() for eval_traj in eval_trajs]
+        cur_reward = np.mean(eval_returns)
+
+        print("Reward in this iteration of training = ", cur_reward)
+        if  cur_reward > self.cur_max_reward:
+            print("Saving model with avg score = ", cur_reward)
+            self.cur_max_reward = cur_reward
+            model_save_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../best_models")
+            torch.save(self.state_dict(), os.path.join(model_save_path, "model_"+ self.args.env_name + "_"+ self.args.exp_name+".pth"))
+
+        trajs = utils.sample_n_trajectories(env, self, self.hyperparameters["ntraj"], self.hyperparameters["maxtraj"], False)
+        return {'episode_loss': cur_reward, 'trajectories': trajs, 'current_train_envsteps': self.hyperparameters["ntraj"]} #you can return more metadata if you want to
+
+'''
