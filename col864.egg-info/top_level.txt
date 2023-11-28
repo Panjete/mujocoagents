@@ -1,4 +1,0 @@
-agents
-policies
-scripts
-utils

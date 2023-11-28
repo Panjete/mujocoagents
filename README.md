@@ -43,8 +43,7 @@ Key Insights and Implementational details of Imitation Agent:
 
 ## Reinforcement Learning Agent:
 
-- Continuous Action space is handled by assuming that all dimensions of actions are independent of each other, 
-- and using a (not too unrealistic) assumption that the actions can be assumed to be coming from a Normal Distribution
+- Continuous Action space is handled by assuming that all dimensions of actions are independent of each other and using a (not too unrealistic) assumption that the actions can be assumed to be coming from a Normal Distribution
 - Thus, the model outputs 2*action_dim number of values, half being the means and the other half being variances
 - When querying for the next action, a sample from this distribution is returned
 
@@ -60,10 +59,8 @@ Key Insights and Implementational details of Imitation Agent:
 - Gradients that are added to the current policy are weighed by alpha :  sqrt(1/(1 + envsteps_so_far/1000))
 - This decreases as iterations increase, inspiration from simulated-annealing.
 
-- Implementation of Soft Actor Critic : Theoretic results from [SAC](https://arxiv.org/abs/1801.01290) suggest 
-- taking minimum of multiple critics to combat over estimation, soft-transition of parameters (tau) 
-- representation (reward_now * gamma * Q(s,a) - V(s)) of Advantage, and maximizing "entropy"
-- Declaration : Implementation With help from [SAC](https://www.youtube.com/watch?v=ioidsRlf79o)
+- Implementation of Soft Actor Critic : Theoretic results from [SAC](https://arxiv.org/abs/1801.01290) suggest taking minimum of multiple critics to combat over estimation, soft-transition of parameters (tau), representation (reward_now * gamma * Q(s,a) - V(s)) of Advantage, and maximizing "entropy"
+- Implementation With help from [SAC](https://www.youtube.com/watch?v=ioidsRlf79o)
 - Soft-Updates of parameters for stability, multi-critics to combat over-estimation
 
 ### Imitation-Seeded RL
@@ -72,20 +69,16 @@ Key Insights and Implementational details of Imitation Agent:
 Key Insights and Implementational Details from ImitationSeededRL:
 
 - In the first Iteration of training, I train the Imitation attribute ("the imitator") to fit the expert policy well
-- Once trained, I fit the actor model to actions suggest by the imitaton on sampled trajectories, and the critic to 
-- the "rewards-to-go" obtained from these trajectories on a per-state basis.
+- Once trained, I fit the actor model to actions suggest by the imitaton on sampled trajectories, and the critic to the "rewards-to-go" obtained from these trajectories on a per-state basis.
 
-- The ImitationSeededRL version of the Soft Actor Critic is purely my contribution
+- The ImitationSeededRL version of the Soft Actor Critic is purely my contribution.
 
-- On subsequent iterations, with probability p, perform some training iterations on the imitator and 
-- "recalibrate" the actor and critic to the imitator
+- On subsequent iterations, with probability p, perform some training iterations on the imitator and "recalibrate" the actor and critic to the imitator
 - With probability 1-p, let the RL component of the model explore
 - As the number of iterations increase, decrease p (explore more).
 
-Overall Optimisations:
+### Plots and Logs
 
 - Greedily save the model when a test set performs better than the previous best performance
 
-- Analysis of performance has has been meticulously performed on the trainings. Some Plots of performance vs training 
-- have been attached in [https://drive.google.com/drive/folders/1PnE2SqnoBilEAzfqQvOopdSEPeQdkDtW?usp=sharing]
-- This was done by modifying the train_agent.py, and plotting values from the evaluated scalar logs
+- Analysis of performance has has been meticulously performed on the trainings. Some Plots of performance vs training have been attached in [here](https://drive.google.com/drive/folders/1PnE2SqnoBilEAzfqQvOopdSEPeQdkDtW?usp=sharing)
