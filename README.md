@@ -6,6 +6,9 @@ More details about the environments and control parameters can be found at [here
 
 The inituitive difficulty of these models is the requirement to fit a continuous action space. I take three approaches to the problem, an Imitation Learning Agent, a Policy Gradient Based Approach (both vanilla Actor Critic and Soft Actor Critic), and lastly building a better SAC model by bootstrapping it via IL.
 
+![hopper](https://github.com/Panjete/mujocoagents/assets/103451209/3d6e0846-f4ad-4e51-ac9d-03354a53b15b)
+
+
 ### Setup
 
 Dependencies are listed in the `environment_lin.yaml` file. I suggest creating a conda environment and installing these using `pip install -e .`
