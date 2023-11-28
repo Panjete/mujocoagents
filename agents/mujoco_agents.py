@@ -143,10 +143,8 @@ class Critic(nn.Module):
         self.q_out = nn.Linear(256 , 1)
 
         self.optimizer = optim.Adam(self.parameters(), lr = beta_critic)
-        if torch.cuda.is_available():
-            self.device = torch.device('cuda:0')
-        else:
-            self.device = torch.device('cpu')
+        
+        self.device = torch.device('cpu')
         self.to(self.device)
 
     def forward(self, state, action):
@@ -173,10 +171,7 @@ class Value(nn.Module):
         self.v_out = nn.Linear(256 , 1)
 
         self.optimizer = optim.Adam(self.parameters(), lr = self.lr)
-        if torch.cuda.is_available():
-            self.device = torch.device('cuda:0')
-        else:
-            self.device = torch.device('cpu')
+        self.device = torch.device('cpu')
         self.to(self.device)
 
     def forward(self, state):
@@ -204,10 +199,8 @@ class Actor(nn.Module):
         self.variances = nn.Linear(256, self.action_dims)
 
         self.optimizer = optim.Adam(self.parameters(), lr = alpha)
-        if torch.cuda.is_available():
-            self.device = torch.device('cuda:0')
-        else:
-            self.device = torch.device('cpu')
+       
+        self.device = torch.device('cpu')
         self.to(self.device)
 
     def forward(self, observation):
@@ -564,10 +557,7 @@ class RLAgent(BaseAgent):
         self.sampling = False
         self.actor_critic = self.hyperparameters["actor_critic"]
         self.cur_max_reward = 0.0
-        if torch.cuda.is_available():
-            self.device = torch.device('cuda:0')
-        else:
-            self.device = torch.device('cpu')
+        self.device = torch.device('cpu')
         self.to(self.device)
 
     def forward(self, observation: torch.FloatTensor):
